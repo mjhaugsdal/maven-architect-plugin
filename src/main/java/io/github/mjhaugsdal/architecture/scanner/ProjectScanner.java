@@ -22,7 +22,13 @@ public final class ProjectScanner {
         Map<ModuleId, MavenProject> reactor = new HashMap<>();
         Map<Path, ModuleId> directories = new HashMap<>();
         for (MavenProject project : projects) {
+            if (project == null) {
+                throw new IllegalArgumentException("The Maven reactor contains a null project");
+            }
             ModuleId id = id(project.getGroupId(), project.getArtifactId(), project.getVersion());
+            if (project.getBasedir() == null) {
+                throw new IllegalArgumentException("No project directory is available for " + id);
+            }
             ModuleId parent = project.getParent() == null ? null
                     : id(project.getParent().getGroupId(), project.getParent().getArtifactId(),
                             project.getParent().getVersion());

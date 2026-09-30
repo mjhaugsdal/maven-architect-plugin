@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.apache.maven.model.Dependency;
+import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Model;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,39 @@ class ArchitectureTest {
         assertEquals(2, defaultGraph.dependencies().size());
         assertEquals(3, new ProjectScanner().scan(List.of(root, child, target, testOnly), true).dependencies().size());
         assertTrue(defaultGraph.modules().stream().anyMatch(module -> module.id().equals(testOnlyId())));
+    }
+
+    @Test
+    void scannerDoesNotInferInheritanceFromAggregationOrAggregationFromInheritance() {
+        MavenProject aggregator = project("aggregator", "1", "pom", temp);
+        aggregator.getModel().addModule("child");
+        MavenProject parent = project("parent", "1", "pom", temp.resolve("parent"));
+        MavenProject child = project("child", "1", "jar", temp.resolve("child"));
+        child.setParent(parent);
+        ArchitectureGraph graph = new ProjectScanner().scan(List.of(aggregator, parent, child), false);
+        ModuleId childId = new ModuleId("example", "child", "1");
+        assertEquals(2, graph.relationships().size());
+        assertTrue(graph.relationships().contains(new ModuleRelationship(
+                new ModuleId("example", "aggregator", "1"), childId, ModuleRelationship.Type.AGGREGATION)));
+        assertTrue(graph.relationships().contains(new ModuleRelationship(
+                new ModuleId("example", "parent", "1"), childId, ModuleRelationship.Type.INHERITANCE)));
+    }
+
+    @Test
+    void scannerExcludesManagedOnlyAndNonmatchingDependencyTypes() {
+        MavenProject source = project("source", "1", "jar", temp);
+        MavenProject target = project("target", "1", "jar", temp.resolve("target"));
+        DependencyManagement management = new DependencyManagement();
+        management.addDependency(dependency("target", "1", "compile"));
+        source.getModel().setDependencyManagement(management);
+        Dependency provided = dependency("target", "1", "provided");
+        source.getModel().addDependency(provided);
+        Dependency classified = dependency("target", "1", "compile");
+        classified.setClassifier("tests");
+        source.getModel().addDependency(classified);
+        Dependency wrongVersion = dependency("target", "2", "compile");
+        source.getModel().addDependency(wrongVersion);
+        assertTrue(new ProjectScanner().scan(List.of(source, target), true).dependencies().isEmpty());
     }
 
     private ModuleId testOnlyId() {
