@@ -9,6 +9,9 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
+import org.apache.maven.artifact.versioning.InvalidVersionSpecificationException;
+import org.apache.maven.artifact.versioning.VersionRange;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.project.MavenProject;
 
@@ -68,14 +71,43 @@ public final class ProjectScanner {
                         || dependency.getVersion() == null) {
                     continue;
                 }
-                ModuleId target = id(dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion());
-                MavenProject targetProject = reactor.get(target);
+                ModuleId target = resolveTarget(dependency, reactor);
+                MavenProject targetProject = target == null ? null : reactor.get(target);
                 if (targetProject != null && matchesType(dependency, targetProject)) {
                     graph.addDependency(new ModuleDependency(source, target, scope));
                 }
             }
         }
         return graph;
+    }
+
+    private ModuleId resolveTarget(Dependency dependency, Map<ModuleId, MavenProject> reactor) {
+        String groupId = dependency.getGroupId();
+        String artifactId = dependency.getArtifactId();
+        String version = dependency.getVersion();
+        ModuleId exact = id(groupId, artifactId, version);
+        if (reactor.containsKey(exact)) {
+            return exact;
+        }
+        if (!(version.startsWith("[") || version.startsWith("("))) {
+            return null;
+        }
+        try {
+            VersionRange range = VersionRange.createFromVersionSpec(version);
+            ModuleId match = null;
+            for (ModuleId candidate : reactor.keySet()) {
+                if (candidate.groupId().equals(groupId) && candidate.artifactId().equals(artifactId)
+                        && range.containsVersion(new DefaultArtifactVersion(candidate.version()))) {
+                    if (match != null) {
+                        return null;
+                    }
+                    match = candidate;
+                }
+            }
+            return match;
+        } catch (InvalidVersionSpecificationException e) {
+            return null;
+        }
     }
 
     private boolean matchesType(Dependency dependency, MavenProject target) {

@@ -100,6 +100,24 @@ class ArchitectureTest {
         assertTrue(new ProjectScanner().scan(List.of(source, target), true).dependencies().isEmpty());
     }
 
+    @Test
+    void scannerMatchesVersionRangesOnlyWhenOneReactorVersionQualifies() {
+        MavenProject source = project("source", "1", "jar", temp);
+        source.getModel().addDependency(dependency("target", "[1.0,2.0)", "compile"));
+        MavenProject matchingTarget = project("target", "1.1", "jar", temp.resolve("target-1.1"));
+        MavenProject nonmatchingTarget = project("target", "2.1", "jar", temp.resolve("target-2.1"));
+        ModuleId sourceId = new ModuleId("example", "source", "1");
+        ModuleId matchingTargetId = new ModuleId("example", "target", "1.1");
+        assertTrue(new ProjectScanner().scan(List.of(source, matchingTarget, nonmatchingTarget), true)
+                .dependencies().contains(new ModuleDependency(sourceId, matchingTargetId, "compile")));
+
+        source.getModel().getDependencies().clear();
+        source.getModel().addDependency(dependency("target", "[1.0,3.0)", "compile"));
+        MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
+        assertTrue(new ProjectScanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
+                .dependencies().isEmpty());
+    }
+
     private ModuleId testOnlyId() {
         return new ModuleId("example", "test-only", "1");
     }
