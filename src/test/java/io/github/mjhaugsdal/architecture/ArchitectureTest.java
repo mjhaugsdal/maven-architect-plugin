@@ -11,6 +11,10 @@ import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.apache.maven.artifact.DefaultArtifact;
+import org.apache.maven.artifact.handler.ArtifactHandler;
+import org.apache.maven.artifact.handler.DefaultArtifactHandler;
+import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Model;
@@ -55,7 +59,7 @@ class ArchitectureTest {
         target.getModel().addDependency(dependency("child", "1", "compile"));
         MavenProject testOnly = project("test-only", "1", "jar", temp.resolve("test-only"));
 
-        ArchitectureGraph defaultGraph = new ProjectScanner().scan(List.of(root, child, target, testOnly), false);
+        ArchitectureGraph defaultGraph = scanner().scan(List.of(root, child, target, testOnly), false);
         ModuleId rootId = new ModuleId("example", "parent", "1");
         ModuleId childId = new ModuleId("example", "child", "1");
         assertTrue(defaultGraph.relationships().contains(
@@ -63,7 +67,7 @@ class ArchitectureTest {
         assertTrue(defaultGraph.relationships().contains(
                 new ModuleRelationship(rootId, childId, ModuleRelationship.Type.INHERITANCE)));
         assertEquals(2, defaultGraph.dependencies().size());
-        assertEquals(3, new ProjectScanner().scan(List.of(root, child, target, testOnly), true).dependencies().size());
+        assertEquals(3, scanner().scan(List.of(root, child, target, testOnly), true).dependencies().size());
         assertTrue(defaultGraph.modules().stream().anyMatch(module -> module.id().equals(testOnlyId())));
     }
 
@@ -74,7 +78,7 @@ class ArchitectureTest {
         MavenProject parent = project("parent", "1", "pom", temp.resolve("parent"));
         MavenProject child = project("child", "1", "jar", temp.resolve("child"));
         child.setParent(parent);
-        ArchitectureGraph graph = new ProjectScanner().scan(List.of(aggregator, parent, child), false);
+        ArchitectureGraph graph = scanner().scan(List.of(aggregator, parent, child), false);
         ModuleId childId = new ModuleId("example", "child", "1");
         assertEquals(2, graph.relationships().size());
         assertTrue(graph.relationships().contains(new ModuleRelationship(
@@ -97,7 +101,19 @@ class ArchitectureTest {
         source.getModel().addDependency(classified);
         Dependency wrongVersion = dependency("target", "2", "compile");
         source.getModel().addDependency(wrongVersion);
-        assertTrue(new ProjectScanner().scan(List.of(source, target), true).dependencies().isEmpty());
+        assertTrue(scanner().scan(List.of(source, target), true).dependencies().isEmpty());
+    }
+
+    @Test
+    void scannerMatchesDependencyArtifactExtensionToCustomPackaging() {
+        MavenProject source = project("source", "1", "jar", temp);
+        MavenProject target = project("target", "1", "bundle", temp.resolve("target"));
+        DefaultArtifactHandler targetHandler = new DefaultArtifactHandler("bundle");
+        targetHandler.setExtension("jar");
+        target.getArtifact().setArtifactHandler(targetHandler);
+        source.getModel().addDependency(dependency("target", "1", "compile"));
+
+        assertEquals(1, scanner().scan(List.of(source, target), false).dependencies().size());
     }
 
     @Test
@@ -108,13 +124,13 @@ class ArchitectureTest {
         MavenProject nonmatchingTarget = project("target", "2.1", "jar", temp.resolve("target-2.1"));
         ModuleId sourceId = new ModuleId("example", "source", "1");
         ModuleId matchingTargetId = new ModuleId("example", "target", "1.1");
-        assertTrue(new ProjectScanner().scan(List.of(source, matchingTarget, nonmatchingTarget), true)
+        assertTrue(scanner().scan(List.of(source, matchingTarget, nonmatchingTarget), true)
                 .dependencies().contains(new ModuleDependency(sourceId, matchingTargetId, "compile")));
 
         source.getModel().getDependencies().clear();
         source.getModel().addDependency(dependency("target", "[1.0,3.0)", "compile"));
         MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
-        assertTrue(new ProjectScanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
+        assertTrue(scanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
                 .dependencies().isEmpty());
     }
 
@@ -154,7 +170,20 @@ class ArchitectureTest {
         new DiagramWriter().write(output, content);
         assertEquals(modified, Files.getLastModifiedTime(output));
         assertThrows(IllegalArgumentException.class, () -> new DiagramWriter().write(output, ""));
-        assertThrows(IllegalArgumentException.class, () -> new ProjectScanner().scan(List.of(), false));
+        assertThrows(IllegalArgumentException.class, () -> scanner().scan(List.of(), false));
+    }
+
+    private ProjectScanner scanner() {
+        return new ProjectScanner(new ArtifactHandlerManager() {
+            @Override
+            public ArtifactHandler getArtifactHandler(String type) {
+                return new DefaultArtifactHandler(type);
+            }
+
+            @Override
+            public void addHandlers(java.util.Map<String, ArtifactHandler> handlers) {
+            }
+        });
     }
 
     private MavenProject project(String artifact, String version, String packaging, Path directory) {
@@ -164,6 +193,8 @@ class ArchitectureTest {
         model.setVersion(version);
         model.setPackaging(packaging);
         MavenProject project = new MavenProject(model);
+        project.setArtifact(new DefaultArtifact("example", artifact, version, "compile", packaging, null,
+                new DefaultArtifactHandler(packaging)));
         project.setFile(directory.resolve("pom.xml").toFile());
         return project;
     }

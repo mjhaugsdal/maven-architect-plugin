@@ -12,11 +12,19 @@ import java.util.Map;
 import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
 import org.apache.maven.artifact.versioning.InvalidVersionSpecificationException;
 import org.apache.maven.artifact.versioning.VersionRange;
+import org.apache.maven.artifact.handler.ArtifactHandler;
+import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.project.MavenProject;
 
 /** Reads the effective Maven reactor model without parsing POM files. */
 public final class ProjectScanner {
+    private final ArtifactHandlerManager artifactHandlerManager;
+
+    public ProjectScanner(ArtifactHandlerManager artifactHandlerManager) {
+        this.artifactHandlerManager = artifactHandlerManager;
+    }
+
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
@@ -112,7 +120,10 @@ public final class ProjectScanner {
 
     private boolean matchesType(Dependency dependency, MavenProject target) {
         String type = dependency.getType() == null || dependency.getType().isBlank() ? "jar" : dependency.getType();
-        return type.equals(target.getPackaging()) || ("jar".equals(type) && "maven-plugin".equals(target.getPackaging()));
+        ArtifactHandler dependencyHandler = artifactHandlerManager.getArtifactHandler(type);
+        return dependencyHandler != null && target.getArtifact() != null
+                && target.getArtifact().getArtifactHandler() != null
+                && dependencyHandler.getExtension().equals(target.getArtifact().getArtifactHandler().getExtension());
     }
 
     private ModuleId id(String group, String artifact, String version) {

@@ -6,9 +6,11 @@ import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.io.File;
 import java.io.IOException;
+import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
@@ -17,6 +19,9 @@ import org.apache.maven.project.MavenProject;
 /** Generates a Mermaid diagram of the currently selected Maven reactor. */
 @Mojo(name = "diagram", aggregator = true, defaultPhase = LifecyclePhase.NONE, threadSafe = true)
 public final class DiagramMojo extends AbstractMojo {
+    @Component
+    private ArtifactHandlerManager artifactHandlerManager;
+
     @Parameter(defaultValue = "${session}", readonly = true, required = true)
     private MavenSession session;
 
@@ -59,7 +64,8 @@ public final class DiagramMojo extends AbstractMojo {
             throw new MojoExecutionException("outputFile must point to a writable file, not a directory");
         }
         try {
-            ArchitectureGraph graph = new ProjectScanner().scan(session.getProjects(), includeTestDependencies);
+            ArchitectureGraph graph = new ProjectScanner(artifactHandlerManager)
+                    .scan(session.getProjects(), includeTestDependencies);
             String diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
             new DiagramWriter().write(outputFile.toPath(), diagram);
             getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
