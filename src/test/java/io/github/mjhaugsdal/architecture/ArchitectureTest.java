@@ -1,0 +1,127 @@
+package io.github.mjhaugsdal.architecture;
+
+import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
+import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
+import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ModuleDependency;
+import io.github.mjhaugsdal.architecture.model.ModuleId;
+import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
+import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
+import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Model;
+import org.apache.maven.project.MavenProject;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class ArchitectureTest {
+    @TempDir Path temp;
+
+    @Test
+    void identitiesAndDuplicateRelationships() {
+        ModuleId first = new ModuleId("one", "same", "1");
+        ModuleId second = new ModuleId("two", "same", "1");
+        ModuleId third = new ModuleId("one", "same", "2");
+        assertNotEquals(first, second);
+        assertNotEquals(first, third);
+        ArchitectureGraph graph = new ArchitectureGraph();
+        graph.addModule(new ArchitectureModule(first, "pom", null, "", null));
+        graph.addModule(new ArchitectureModule(second, "jar", null, "", first));
+        graph.addModule(new ArchitectureModule(third, "jar", null, "", first));
+        ModuleRelationship relationship = new ModuleRelationship(first, second, ModuleRelationship.Type.AGGREGATION);
+        graph.addRelationship(relationship);
+        graph.addRelationship(relationship);
+        assertEquals(1, graph.relationships().size());
+        assertThrows(IllegalArgumentException.class,
+                () -> graph.addModule(new ArchitectureModule(first, "jar", null, "", null)));
+    }
+
+    @Test
+    void scannerDistinguishesAggregationInheritanceAndDependencyScopes() {
+        MavenProject root = project("parent", "1", "pom", temp);
+        root.getModel().addModule("child");
+        MavenProject child = project("child", "1", "jar", temp.resolve("child"));
+        child.setParent(root);
+        child.getModel().addDependency(dependency("target", "1", "runtime"));
+        child.getModel().addDependency(dependency("test-only", "1", "test"));
+        child.getModel().addDependency(dependency("external", "1", "compile"));
+        MavenProject target = project("target", "1", "jar", temp.resolve("target"));
+        target.getModel().addDependency(dependency("child", "1", "compile"));
+        MavenProject testOnly = project("test-only", "1", "jar", temp.resolve("test-only"));
+
+        ArchitectureGraph defaultGraph = new ProjectScanner().scan(List.of(root, child, target, testOnly), false);
+        ModuleId rootId = new ModuleId("example", "parent", "1");
+        ModuleId childId = new ModuleId("example", "child", "1");
+        assertTrue(defaultGraph.relationships().contains(
+                new ModuleRelationship(rootId, childId, ModuleRelationship.Type.AGGREGATION)));
+        assertTrue(defaultGraph.relationships().contains(
+                new ModuleRelationship(rootId, childId, ModuleRelationship.Type.INHERITANCE)));
+        assertEquals(2, defaultGraph.dependencies().size());
+        assertEquals(3, new ProjectScanner().scan(List.of(root, child, target, testOnly), true).dependencies().size());
+        assertTrue(defaultGraph.modules().stream().anyMatch(module -> module.id().equals(testOnlyId())));
+    }
+
+    private ModuleId testOnlyId() {
+        return new ModuleId("example", "test-only", "1");
+    }
+
+    @Test
+    void generatorEscapesLabelsAndProducesStableUniqueNodesForCycles() {
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId a = new ModuleId("a", "module", "1");
+        ModuleId b = new ModuleId("b", "module", "1");
+        graph.addModule(new ArchitectureModule(b, "jar", "Name \"<x>\"", "", null));
+        graph.addModule(new ArchitectureModule(a, "jar", "Name \"<x>\"", "", null));
+        graph.addDependency(new ModuleDependency(a, b, "compile"));
+        graph.addDependency(new ModuleDependency(b, a, "runtime"));
+        graph.addDependency(new ModuleDependency(a, b, "runtime"));
+        String diagram = new MermaidGenerator().generate(graph, true, true);
+        assertEquals(diagram, new MermaidGenerator().generate(graph, true, true));
+        assertTrue(diagram.contains("n0[\"Name #34;#60;x#62;#34; (a:1)\"]"));
+        assertTrue(diagram.contains("n1[\"Name #34;#60;x#62;#34; (b:1)\"]"));
+        assertEquals(1, diagram.split("n0 -.-> n1", -1).length - 1);
+        assertTrue(diagram.contains("n1 -.-> n0"));
+    }
+
+    @Test
+    void emptyAndIsolatedGraphsAndWriter() throws Exception {
+        MermaidGenerator generator = new MermaidGenerator();
+        assertEquals("flowchart TD\n", generator.generate(new ArchitectureGraph(), true, true));
+        ArchitectureGraph graph = new ArchitectureGraph();
+        graph.addModule(new ArchitectureModule(new ModuleId("g", "a", "1"), "jar", null, "", null));
+        String content = generator.generate(graph, true, true);
+        assertTrue(content.contains("n0[\"a\"]"));
+        Path output = temp.resolve("nested/diagram.mmd");
+        new DiagramWriter().write(output, content);
+        var modified = Files.getLastModifiedTime(output);
+        new DiagramWriter().write(output, content);
+        assertEquals(modified, Files.getLastModifiedTime(output));
+        assertThrows(IllegalArgumentException.class, () -> new DiagramWriter().write(output, ""));
+        assertThrows(IllegalArgumentException.class, () -> new ProjectScanner().scan(List.of(), false));
+    }
+
+    private MavenProject project(String artifact, String version, String packaging, Path directory) {
+        Model model = new Model();
+        model.setGroupId("example");
+        model.setArtifactId(artifact);
+        model.setVersion(version);
+        model.setPackaging(packaging);
+        MavenProject project = new MavenProject(model);
+        project.setFile(directory.resolve("pom.xml").toFile());
+        return project;
+    }
+
+    private Dependency dependency(String artifact, String version, String scope) {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId("example");
+        dependency.setArtifactId(artifact);
+        dependency.setVersion(version);
+        dependency.setScope(scope);
+        return dependency;
+    }
+}
