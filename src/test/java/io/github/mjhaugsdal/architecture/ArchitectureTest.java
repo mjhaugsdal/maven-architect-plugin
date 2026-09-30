@@ -150,8 +150,8 @@ class ArchitectureTest {
         graph.addDependency(new ModuleDependency(a, b, "runtime"));
         String diagram = new MermaidGenerator().generate(graph, true, true);
         assertEquals(diagram, new MermaidGenerator().generate(graph, true, true));
-        assertTrue(diagram.contains("n0[\"Name #34;#60;x#62;#34; (a:1)\"]"));
-        assertTrue(diagram.contains("n1[\"Name #34;#60;x#62;#34; (b:1)\"]"));
+        assertTrue(diagram.contains("n0[\"Name #34;#60;x#62;#34; (a:module:1)\"]"));
+        assertTrue(diagram.contains("n1[\"Name #34;#60;x#62;#34; (b:module:1)\"]"));
         assertEquals(1, diagram.split("n0 -.-> n1", -1).length - 1);
         assertTrue(diagram.contains("n1 -.-> n0"));
     }
