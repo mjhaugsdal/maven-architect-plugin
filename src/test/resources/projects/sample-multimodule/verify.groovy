@@ -22,7 +22,7 @@ def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale
 def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}",
                "-Darchitecture.includeTestDependencies=true",
                "-Darchitecture.outputFile=target/architecture/with-tests.mmd",
-               "io.github.mjhaugsdal:maven-architecture-plugin:0.0.1-SNAPSHOT:diagram"]
+               "io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
 def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
 String log = process.inputStream.getText("UTF-8")
 assert process.waitFor() == 0 : log

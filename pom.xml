@@ -68,6 +68,9 @@
                     <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
                     <localRepositoryPath>${project.build.directory}/it-repository</localRepositoryPath>
                     <postBuildHookScript>verify</postBuildHookScript>
+                    <scriptVariables>
+                        <pluginVersion>${project.version}</pluginVersion>
+                    </scriptVariables>
                     <goals>
                         <goal>io.github.mjhaugsdal:maven-architecture-plugin:${project.version}:diagram</goal>
                     </goals>
