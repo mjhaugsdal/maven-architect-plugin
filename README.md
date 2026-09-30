@@ -2,9 +2,11 @@
 
 `maven-architecture-plugin` 0.0.1-SNAPSHOT produces a Mermaid flowchart from the
 projects in the **selected Maven reactor**. It uses Maven's effective project
-models, not a second pass over POM files. The diagram distinguishes aggregation
-(listed `<modules>`), inheritance (`<parent>`), and declared direct dependencies.
-It does **not** analyze Java classes or packages.
+models, not a second pass over POM files. By default it draws a simplified
+**build-level** diagram showing which modules can be built in parallel; a
+`full` diagram distinguishing aggregation (listed `<modules>`), inheritance
+(`<parent>`), and declared direct dependencies is also available. It does
+**not** analyze Java classes or packages.
 
 ## Requirements and installation
 
@@ -46,6 +48,7 @@ To use the short form `mvn architecture:diagram`, declare the plugin under
       <artifactId>maven-architecture-plugin</artifactId>
       <version>0.0.1-SNAPSHOT</version>
       <configuration>
+        <diagramType>build-levels</diagramType>
         <outputFile>${project.build.directory}/architecture/architecture.mmd</outputFile>
         <includeModuleHierarchy>true</includeModuleHierarchy>
         <includeDependencies>true</includeDependencies>
@@ -61,6 +64,7 @@ Options and corresponding command-line properties:
 
 | Option | Property | Default |
 | --- | --- | --- |
+| `diagramType` | `architecture.diagramType` | `build-levels` (or `full`) |
 | `outputFile` | `architecture.outputFile` | `${project.build.directory}/architecture/architecture.mmd` |
 | `includeModuleHierarchy` | `architecture.includeModuleHierarchy` | `true` |
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
@@ -71,14 +75,56 @@ For example:
 
 ```bash
 mvn architecture:diagram -Darchitecture.outputFile=target/my-diagram.mmd
-mvn architecture:diagram -Darchitecture.includeTestDependencies=true
+mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeTestDependencies=true
 ```
+
+The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
+options only apply to the `full` diagram.
 
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
 does not require Mermaid CLI or a browser.
 
-## Diagram semantics
+## Build-level diagram
+
+Each module is placed on the level after the highest level of any reactor
+module it declares a dependency on; modules without reactor dependencies are on
+level 0. Modules on the same level do not depend on each other and can be built
+in parallel (for example with `mvn -T`). For the sample fixture:
+
+```mermaid
+flowchart TD
+    subgraph L0["Level 0"]
+        direction LR
+        n0["common"]
+    end
+    subgraph L1["Level 1"]
+        direction LR
+        n1["domain"]
+    end
+    subgraph L2["Level 2"]
+        direction LR
+        n2["api"]
+        n3["infrastructure"]
+    end
+    subgraph L3["Level 3"]
+        direction LR
+        n4["application"]
+    end
+    L0 --> L1
+    L1 --> L2
+    L2 --> L3
+```
+
+Only module-to-module dependencies inside the reactor are used, and every
+scope counts (including `test` and `provided`, and classified artifacts such as
+`test-jar`), because Maven orders the reactor on all of them. Parent/inheritance
+and aggregation relationships are not drawn and do not affect levels.
+Aggregator POMs (projects listing `<modules>`) are omitted unless another module
+depends on them or they declare reactor dependencies themselves. External
+dependencies are ignored. A dependency cycle fails the goal.
+
+## Full diagram semantics
 
 For a reactor with a parent POM aggregating `common` and `domain`, and a
 declared dependency from `domain` to `common`, an excerpt might be:
@@ -117,8 +163,7 @@ module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
 Version 0.0.1 only supports Mermaid module-level diagrams. It does not resolve
-transitive dependencies, render external libraries, inspect source code,
-report cycles, or enforce architecture rules. Future releases could add other
+transitive dependencies, render external libraries, inspect source code, or enforce architecture rules. Future releases could add other
 diagram formats, grouping, class/package analysis, and architecture validation
 without changing the Maven scanner's graph semantics.
 

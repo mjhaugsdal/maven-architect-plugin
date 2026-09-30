@@ -1,4 +1,40 @@
-File output = new File(basedir, "target/architecture/architecture.mmd")
+File repository = new File(basedir.parentFile.parentFile, "it-repository")
+def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows") ? "mvn.cmd" : "mvn"
+def runGoal = { List<String> properties ->
+    def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}"] + properties +
+            ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
+    def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
+    String log = process.inputStream.getText("UTF-8")
+    assert process.waitFor() == 0 : log
+}
+
+File levelsOutput = new File(basedir, "target/architecture/architecture.mmd")
+assert levelsOutput.isFile()
+assert levelsOutput.getText("UTF-8") == """flowchart TD
+    subgraph L0["Level 0"]
+        direction LR
+        n0["common"]
+    end
+    subgraph L1["Level 1"]
+        direction LR
+        n1["domain"]
+    end
+    subgraph L2["Level 2"]
+        direction LR
+        n2["api"]
+        n3["infrastructure"]
+    end
+    subgraph L3["Level 3"]
+        direction LR
+        n4["application"]
+    end
+    L0 --> L1
+    L1 --> L2
+    L2 --> L3
+"""
+
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.outputFile=target/architecture/full.mmd"])
+File output = new File(basedir, "target/architecture/full.mmd")
 assert output.isFile()
 String diagram = output.getText("UTF-8")
 assert diagram.startsWith("flowchart TD\n")
@@ -17,15 +53,8 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
 
-File repository = new File(basedir.parentFile.parentFile, "it-repository")
-def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows") ? "mvn.cmd" : "mvn"
-def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}",
-               "-Darchitecture.includeTestDependencies=true",
-               "-Darchitecture.outputFile=target/architecture/with-tests.mmd",
-               "io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
-def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
-String log = process.inputStream.getText("UTF-8")
-assert process.waitFor() == 0 : log
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
 assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
