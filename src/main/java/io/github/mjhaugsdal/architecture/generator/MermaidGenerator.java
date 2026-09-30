@@ -26,7 +26,7 @@ public final class MermaidGenerator {
             nodes.put(module.id(), node);
             String label = displayName(module);
             if (labelCounts.get(label) > 1) {
-                label += " (" + module.id().groupId() + ":" + module.id().version() + ")";
+                label += " (" + module.id().groupId() + ":" + module.id().artifactId() + ":" + module.id().version() + ")";
             }
             output.append("    ").append(node).append("[\"").append(escape(label)).append("\"]\n");
         }
