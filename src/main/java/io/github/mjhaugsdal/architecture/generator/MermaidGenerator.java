@@ -53,11 +53,11 @@ public final class MermaidGenerator {
         return output.toString();
     }
 
-    private String displayName(ArchitectureModule module) {
+    static String displayName(ArchitectureModule module) {
         return module.name() == null || module.name().isBlank() ? module.id().artifactId() : module.name();
     }
 
-    private String escape(String label) {
+    static String escape(String label) {
         StringBuilder escaped = new StringBuilder();
         label.codePoints().forEach(codePoint -> {
             if (codePoint < 32 || codePoint == 127) {

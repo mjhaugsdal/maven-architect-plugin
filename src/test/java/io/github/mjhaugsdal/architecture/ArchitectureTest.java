@@ -1,5 +1,6 @@
 package io.github.mjhaugsdal.architecture;
 
+import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
@@ -132,6 +133,64 @@ class ArchitectureTest {
         MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
         assertTrue(scanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
                 .dependencies().isEmpty());
+    }
+
+    @Test
+    void buildLevelsGroupParallelModulesAndIgnoreAggregatorsParentsAndScopes() {
+        MavenProject root = project("root", "1", "pom", temp);
+        root.getModel().addModule("core");
+        root.getModel().addModule("left");
+        root.getModel().addModule("right");
+        root.getModel().addModule("app");
+        MavenProject core = project("core", "1", "jar", temp.resolve("core"));
+        MavenProject left = project("left", "1", "jar", temp.resolve("left"));
+        MavenProject right = project("right", "1", "jar", temp.resolve("right"));
+        MavenProject app = project("app", "1", "jar", temp.resolve("app"));
+        for (MavenProject child : List.of(core, left, right, app)) {
+            child.setParent(root);
+        }
+        left.getModel().addDependency(dependency("core", "1", "provided"));
+        Dependency testJar = dependency("core", "1", "test");
+        testJar.setType("test-jar");
+        testJar.setClassifier("tests");
+        right.getModel().addDependency(testJar);
+        app.getModel().addDependency(dependency("left", "1", "compile"));
+        app.getModel().addDependency(dependency("core", "1", "compile"));
+
+        String diagram = new BuildLevelGenerator().generate(scanner().scanBuildOrder(List.of(root, core, left, right, app)));
+        assertEquals("""
+                flowchart TD
+                    subgraph L0["Level 0"]
+                        direction LR
+                        n0["core"]
+                    end
+                    subgraph L1["Level 1"]
+                        direction LR
+                        n1["left"]
+                        n2["right"]
+                    end
+                    subgraph L2["Level 2"]
+                        direction LR
+                        n3["app"]
+                    end
+                    L0 --> L1
+                    L1 --> L2
+                """, diagram);
+    }
+
+    @Test
+    void buildLevelsRejectCyclesAndKeepIsolatedModules() {
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId a = new ModuleId("g", "a", "1");
+        ModuleId b = new ModuleId("g", "b", "1");
+        graph.addModule(new ArchitectureModule(a, "jar", null, "", null));
+        graph.addModule(new ArchitectureModule(b, "jar", null, "", null));
+        assertEquals("flowchart TD\n    subgraph L0[\"Level 0\"]\n        direction LR\n        n0[\"a\"]\n"
+                + "        n1[\"b\"]\n    end\n", new BuildLevelGenerator().generate(graph));
+        graph.addDependency(new ModuleDependency(a, b, "compile"));
+        graph.addDependency(new ModuleDependency(b, a, "test"));
+        assertThrows(IllegalArgumentException.class, () -> new BuildLevelGenerator().generate(graph));
+        assertEquals("flowchart TD\n", new BuildLevelGenerator().generate(new ArchitectureGraph()));
     }
 
     private ModuleId testOnlyId() {
