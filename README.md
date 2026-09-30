@@ -22,6 +22,9 @@ This runs JUnit 5 tests and a Maven Invoker integration test against
 the default and test-dependency-enabled diagrams. The second invocation runs
 offline against the Invoker's local repository.
 
+GitHub Actions runs `mvn -B --no-transfer-progress clean install` with Java 17
+on pushes, pull requests, and manual workflow dispatches.
+
 ## Usage
 
 Run from the root of a multi-module project (after installing the plugin):
