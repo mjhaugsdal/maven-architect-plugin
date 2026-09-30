@@ -18,7 +18,8 @@ assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
 
 File repository = new File(basedir.parentFile.parentFile, "it-repository")
-def command = ["mvn", "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}",
+def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows") ? "mvn.cmd" : "mvn"
+def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}",
                "-Darchitecture.includeTestDependencies=true",
                "-Darchitecture.outputFile=target/architecture/with-tests.mmd",
                "io.github.mjhaugsdal:maven-architecture-plugin:0.0.1-SNAPSHOT:diagram"]
