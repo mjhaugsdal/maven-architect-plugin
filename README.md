@@ -253,8 +253,8 @@ For `0.0.1`, check that `target/` contains:
 - `maven-architecture-plugin-0.0.1.jar`
 - `maven-architecture-plugin-0.0.1-sources.jar`
 - `maven-architecture-plugin-0.0.1-javadoc.jar`
-- An `.asc` signature alongside each of those JARs, and a signed POM
-  under `target/gpg/`.
+- `maven-architecture-plugin-0.0.1.pom`
+- An `.asc` signature alongside each JAR and the POM.
 
 For example, verify a signature locally:
 
