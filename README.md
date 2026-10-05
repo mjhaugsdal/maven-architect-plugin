@@ -167,6 +167,136 @@ transitive dependencies, render external libraries, inspect source code, or enfo
 diagram formats, grouping, class/package analysis, and architecture validation
 without changing the Maven scanner's graph semantics.
 
-To prepare a 0.0.1 release, replace the development
-`0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish
-the artifact using your chosen Maven release process.
+## Releasing locally to Maven Central
+
+Releases use the [Sonatype Central Portal](https://central.sonatype.com/),
+not the retired OSSRH staging service. The opt-in `release` Maven profile
+attaches source and Javadoc JARs, signs the POM and all three JARs with your
+local GPG key, and uploads them to the Portal at `deploy`. Ordinary
+`mvn clean install` builds do not need GPG or publishing credentials.
+The profile rejects `-SNAPSHOT` project versions.
+
+### One-time setup
+
+1. Install Java 17 or later, Maven 3.9.2 or later, and GnuPG 2.x on your
+   workstation.
+2. Sign in to the Central Portal and verify ownership of the namespace
+   `io.github.mjhaugsdal` under **Namespaces**. Follow the Portal's GitHub
+   ownership verification instructions; having a matching Maven group ID
+   alone is not enough to publish.
+3. Generate a **user token** in the Portal. Merge this server entry into your
+   local `~/.m2/settings.xml` (do not replace any existing settings):
+
+   ```xml
+   <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+     <servers>
+       <server>
+         <id>central</id>
+         <username>${env.CENTRAL_USERNAME}</username>
+         <password>${env.CENTRAL_PASSWORD}</password>
+       </server>
+     </servers>
+   </settings>
+   ```
+
+   `CENTRAL_USERNAME` and `CENTRAL_PASSWORD` are the token's generated
+   username and password, **not** your GitHub or Portal login. Set them only
+   in the shell used to deploy. For Bash, read them without putting the
+   values into shell history:
+
+   ```bash
+   read -r -p "Central token username: " CENTRAL_USERNAME
+   read -r -s -p "Central token password: " CENTRAL_PASSWORD; printf '\n'
+   export CENTRAL_USERNAME CENTRAL_PASSWORD
+   ```
+
+   Keep settings, tokens, private keys, and passphrases outside this repository.
+   Do not pass credentials or a GPG passphrase as Maven `-D` arguments or
+   enable debug logging during publishing.
+4. Find the fingerprint of your existing signing key and publish its
+   **public** key so Central can verify signatures:
+
+   ```bash
+   gpg --list-secret-keys --keyid-format long
+   export GPG_KEY_FINGERPRINT=YOUR_FULL_KEY_FINGERPRINT
+   gpg --keyserver hkps://keyserver.ubuntu.com --send-keys "$GPG_KEY_FINGERPRINT"
+   ```
+
+   The key must be unexpired and have signing capability. Never export or
+   upload its private key. On macOS/Linux, set `export GPG_TTY=$(tty)` in your
+   release shell so GPG's pinentry prompt can use your terminal. Signing uses
+   `gpg-agent`; keep Maven interactive (do not use `-B`) so it can prompt for
+   the key's passphrase. If pinentry fails, check your local GnuPG/pinentry
+   installation before proceeding.
+
+### Prepare and check a release
+
+Start from a clean checkout of the commit you intend to release. Change only
+the root POM's project version from `0.0.1-SNAPSHOT` to `0.0.1` (choose a new,
+unused version for later releases). Update the usage examples above to that
+release version as well. Do not change dependency versions or the Invoker
+fixtures; integration tests obtain the plugin version from the root POM.
+
+Run from the repository root:
+
+```bash
+mvn clean install
+mvn -Prelease -Dgpg.keyname="$GPG_KEY_FINGERPRINT" clean verify
+```
+
+The second command runs unit/integration tests, generates source and Javadoc
+JARs, and signs the release artifacts, but **does not upload anything**.
+For `0.0.1`, check that `target/` contains:
+
+- `maven-architecture-plugin-0.0.1.jar`
+- `maven-architecture-plugin-0.0.1-sources.jar`
+- `maven-architecture-plugin-0.0.1-javadoc.jar`
+- An `.asc` signature alongside each of those JARs, and a signed POM
+  under `target/gpg/`.
+
+For example, verify a signature locally:
+
+```bash
+gpg --verify target/maven-architecture-plugin-0.0.1.jar.asc \
+  target/maven-architecture-plugin-0.0.1.jar
+```
+
+Commit the release version/documentation changes and tag that exact commit
+(for example, `v0.0.1`) using your normal Git workflow before uploading.
+
+### Upload, review, and publish
+
+With the token variables set in the same terminal, run:
+
+```bash
+mvn -Prelease -Dgpg.keyname="$GPG_KEY_FINGERPRINT" clean deploy
+```
+
+This rebuilds, tests, signs, uploads, and waits for Central's validation.
+`autoPublish` is deliberately **false**: a successful command means the
+deployment is validated, not that it is public. Open **Publishing** in the
+Central Portal, review the uploaded coordinates and files, and click
+**Publish**. If validation fails, inspect the Portal errors and correct them
+before publishing. If Maven times out or loses its connection after upload,
+check the Portal for the existing deployment before uploading again.
+
+Publishing is irreversible, and a published version cannot be overwritten.
+Wait for the Portal to report **PUBLISHED** and for Central propagation, then
+test from a separate Maven project:
+
+```bash
+mvn io.github.mjhaugsdal:maven-architecture-plugin:0.0.1:diagram
+```
+
+After publication, change the root POM to the next development version
+(for example, `0.0.2-SNAPSHOT`) and commit it. Clear credentials from the shell:
+
+```bash
+unset CENTRAL_USERNAME CENTRAL_PASSWORD
+```
+
+See Sonatype's [Maven publishing guide](https://central.sonatype.org/publish/publish-portal-maven/)
+and [GPG requirements](https://central.sonatype.org/publish/requirements/gpg/)
+for Portal and signing troubleshooting.
