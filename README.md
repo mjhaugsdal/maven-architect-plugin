@@ -70,6 +70,7 @@ Options and corresponding command-line properties:
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
 | `includeTestDependencies` | `architecture.includeTestDependencies` | `false` |
 | `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` (enabling it currently fails with an explanatory error) |
+| `verbose` | `architecture.verbose` | `false` |
 
 For example:
 
@@ -79,7 +80,11 @@ mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeT
 ```
 
 The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
-options only apply to the `full` diagram.
+options only apply to the `full` diagram; setting non-default values with
+`diagramType=build-levels` is rejected. Set `architecture.verbose=true` to log
+selected and rendered project counts, generated edge counts, applied filters,
+and whether the output was written or unchanged. Default logging remains
+limited to the output path.
 
 ## Circular dependency report
 
