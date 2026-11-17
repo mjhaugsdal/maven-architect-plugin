@@ -58,3 +58,52 @@ runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependenc
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
 assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+
+["parent", "artifactId", "groupId", "directory"].each { strategy ->
+    runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.groupBy=${strategy}",
+             "-Darchitecture.outputFile=target/architecture/${strategy}.mmd"])
+    String grouped = new File(basedir, "target/architecture/${strategy}.mmd").getText("UTF-8")
+    assert grouped.contains("subgraph G0[")
+    diagram.readLines().findAll { it.trim().startsWith("n") }.each { line ->
+        assert grouped.readLines().any { it.trim() == line.trim() }
+    }
+}
+
+runGoal(["-Darchitecture.groupBy=groupId", "-Darchitecture.outputFile=target/architecture/grouped-levels.mmd"])
+assert new File(basedir, "target/architecture/grouped-levels.mmd").getText("UTF-8")
+        .contains('subgraph L0G0["example"]')
+
+File pom = new File(basedir, "pom.xml")
+pom.setText(pom.getText("UTF-8").replace("</project>", """
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.github.mjhaugsdal</groupId>
+                <artifactId>maven-architecture-plugin</artifactId>
+                <version>${pluginVersion}</version>
+                <configuration>
+                    <customGroups>
+                        <Backend>
+                            <module>example:domain</module>
+                            <module>example:application:1.0</module>
+                        </Backend>
+                        <Adapters>
+                            <module>example:api</module>
+                            <module>example:infrastructure</module>
+                        </Adapters>
+                    </customGroups>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""), "UTF-8")
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.groupBy=custom",
+         "-Darchitecture.outputFile=target/architecture/custom.mmd"])
+String custom = new File(basedir, "target/architecture/custom.mmd").getText("UTF-8")
+assert custom.contains('subgraph G0["Adapters"]')
+assert custom.contains('subgraph G1["Backend"]')
+diagram.readLines().findAll { it.trim().startsWith("n") }.each { line ->
+    assert custom.readLines().any { it.trim() == line.trim() }
+}
+return true

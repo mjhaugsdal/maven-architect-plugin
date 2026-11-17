@@ -20,6 +20,10 @@ import java.util.TreeMap;
  */
 public final class BuildLevelGenerator {
     public String generate(ArchitectureGraph graph) {
+        return generate(graph, Map.of());
+    }
+
+    public String generate(ArchitectureGraph graph, Map<ModuleId, String> groups) {
         Map<ModuleId, ArchitectureModule> modules = new LinkedHashMap<>();
         Set<ModuleId> connected = new HashSet<>();
         for (ModuleDependency dependency : graph.dependencies()) {
@@ -70,15 +74,16 @@ public final class BuildLevelGenerator {
             int level = entry.getKey();
             output.append("    subgraph L").append(level).append("[\"Level ").append(level).append("\"]\n");
             output.append("        direction LR\n");
+            Map<ModuleId, String> declarations = new LinkedHashMap<>();
             for (ArchitectureModule module : entry.getValue()) {
                 String label = MermaidGenerator.displayName(module);
                 if (labelCounts.get(label) > 1) {
                     label += " (" + module.id().groupId() + ":" + module.id().artifactId() + ":"
                             + module.id().version() + ")";
                 }
-                output.append("        n").append(node++).append("[\"")
-                        .append(MermaidGenerator.escape(label)).append("\"]\n");
+                declarations.put(module.id(), "n" + node++ + "[\"" + MermaidGenerator.escape(label) + "\"]\n");
             }
+            MermaidGenerator.appendNodes(output, declarations, groups, "        ", "L" + level + "G");
             output.append("    end\n");
         }
         for (int level = 1; level < byLevel.size(); level++) {
