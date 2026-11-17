@@ -57,6 +57,9 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
 
+    @Parameter(defaultValue = "false", property = "architecture.verbose")
+    private boolean verbose;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (session == null || session.getProjects() == null || session.getProjects().isEmpty()) {
@@ -65,28 +68,62 @@ public final class DiagramMojo extends AbstractMojo {
         if (!project.equals(session.getProjects().get(0))) {
             return;
         }
-        boolean buildLevels = "build-levels".equals(diagramType);
-        if (!buildLevels && !"full".equals(diagramType)) {
-            throw new MojoExecutionException("diagramType must be 'build-levels' or 'full', not '" + diagramType + "'");
-        }
-        if (outputFile == null || outputFile.isDirectory()) {
-            throw new MojoExecutionException("outputFile must point to a writable file, not a directory");
-        }
+        boolean buildLevels = validateParameters();
         try {
             ProjectScanner scanner = new ProjectScanner(artifactHandlerManager);
+            ArchitectureGraph graph;
             String diagram;
             if (buildLevels) {
-                diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
+                graph = scanner.scanBuildOrder(session.getProjects());
+                diagram = new BuildLevelGenerator().generate(graph);
             } else {
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies,
-                        includeExternalDependencies);
+                graph = scanner.scan(session.getProjects(), includeTestDependencies, includeExternalDependencies);
                 diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
             }
-            new DiagramWriter().write(outputFile.toPath(), diagram);
-            getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
+            boolean written = new DiagramWriter().write(outputFile.toPath(), diagram);
+            if (verbose) {
+                getLog().info(summary(diagram, written));
+            } else {
+                getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
+            }
         } catch (IllegalArgumentException | IOException exception) {
             throw new MojoExecutionException("Could not generate architecture diagram: " + exception.getMessage(),
                     exception);
         }
+    }
+
+    private boolean validateParameters() throws MojoExecutionException {
+        boolean buildLevels = "build-levels".equals(diagramType);
+        if (!buildLevels && !"full".equals(diagramType)) {
+            throw new MojoExecutionException("Invalid architecture.diagramType '" + diagramType
+                    + "'; valid values are 'build-levels' and 'full'");
+        }
+        if (buildLevels && (!includeModuleHierarchy || !includeDependencies || includeTestDependencies)) {
+            throw new MojoExecutionException("architecture.includeModuleHierarchy, "
+                    + "architecture.includeDependencies, and architecture.includeTestDependencies only apply to "
+                    + "diagramType='full'; use diagramType='full' or reset these conflicting settings");
+        }
+        if (outputFile == null || outputFile.isDirectory()) {
+            throw new MojoExecutionException("architecture.outputFile must point to a writable file, not a directory");
+        }
+        return buildLevels;
+    }
+
+    private String summary(String diagram, boolean written) {
+        long renderedProjects = diagram.lines().filter(line -> line.matches("\\s*n\\d+\\[.*")).count();
+        long edges = diagram.lines().filter(line -> line.contains(" -->") || line.contains(" -.-> ")).count();
+        String filters = "reactor=selected";
+        if ("build-levels".equals(diagramType)) {
+            filters += ", dependencies=all scopes and types, standalone aggregators=omitted";
+        } else {
+            String scopes = includeTestDependencies ? "compile/runtime/test" : "compile/runtime";
+            filters += ", hierarchy=" + (includeModuleHierarchy ? "included" : "excluded")
+                    + ", dependencies=" + (includeDependencies ? scopes : "excluded")
+                    + ", external dependencies="
+                    + (includeDependencies && includeExternalDependencies ? "included" : "excluded");
+        }
+        return "Architecture diagram summary: " + session.getProjects().size() + " selected projects, "
+                + renderedProjects + " rendered projects, " + edges + " edges; filters: " + filters
+                + "; output: " + outputFile.getAbsolutePath() + (written ? " (written)" : " (unchanged)");
     }
 }

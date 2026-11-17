@@ -14,6 +14,7 @@ public final class ArchitectureGraph {
     private final Set<ModuleDependency> dependencies = new TreeSet<>();
     private final Set<ExternalArtifact> externalArtifacts = new TreeSet<>();
     private final Set<ExternalDependency> externalDependencies = new TreeSet<>();
+    private final Set<ArtifactDependency> artifactDependencies = new TreeSet<>();
 
     public void addModule(ArchitectureModule module) {
         if (modules.putIfAbsent(module.id(), module) != null) {
@@ -37,6 +38,14 @@ public final class ArchitectureGraph {
         }
         externalArtifacts.add(dependency.to());
         externalDependencies.add(dependency);
+    }
+
+    public void addArtifactDependency(ArtifactDependency dependency) {
+        if (!modules.containsKey(dependency.from())
+                || (dependency.reactorTarget() != null && !modules.containsKey(dependency.reactorTarget()))) {
+            throw new IllegalArgumentException("Dependency refers to a project outside the reactor");
+        }
+        artifactDependencies.add(dependency);
     }
 
     private void requireModules(ModuleId from, ModuleId to) {
@@ -63,5 +72,9 @@ public final class ArchitectureGraph {
 
     public Set<ExternalDependency> externalDependencies() {
         return Collections.unmodifiableSet(externalDependencies);
+    }
+
+    public Set<ArtifactDependency> artifactDependencies() {
+        return Collections.unmodifiableSet(artifactDependencies);
     }
 }
