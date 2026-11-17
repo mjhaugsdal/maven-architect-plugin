@@ -1,8 +1,8 @@
 File repository = new File(basedir.parentFile.parentFile, "it-repository")
 def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows") ? "mvn.cmd" : "mvn"
-def runGoal = { List<String> properties ->
+def runGoal = { List<String> properties, String goal = "diagram" ->
     def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}"] + properties +
-            ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
+            ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:${goal}"]
     def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
     String log = process.inputStream.getText("UTF-8")
     assert process.waitFor() == 0 : log
@@ -66,6 +66,25 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
+
+runGoal(["-Darchitecture.jsonOutputFile=target/architecture/complete.json"], "json")
+File jsonOutput = new File(basedir, "target/architecture/complete.json")
+assert jsonOutput.isFile()
+def graph = new groovy.json.JsonSlurper().parse(jsonOutput)
+assert graph.schemaVersion == 1
+assert graph.nodes.count { it.kind == "module" } == 6
+assert graph.nodes.any { it.kind == "external" && it.groupId == "org.unrelated" && it.artifactId == "external" }
+assert graph.nodes.every { !it.containsKey("directory") }
+def moduleIds = graph.nodes.findAll { it.kind == "module" }.collectEntries {
+    [(it.artifactId): it.id]
+}
+assert graph.edges.any { it.kind == "aggregation" && it.from == moduleIds["sample-multimodule"] }
+assert graph.edges.any { it.kind == "inheritance" && it.to == moduleIds["application"] }
+assert graph.edges.any {
+    it.kind == "dependency" && it.from == moduleIds["application"] && it.to == moduleIds["common"] &&
+            it.scope == "test" && it.version == "1.0" && it.type == "test-jar" && it.classifier == "tests"
+}
+assert graph.edges.any { it.kind == "dependency" && it.scope == "runtime" }
 
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
