@@ -7,5 +7,6 @@
         <dependency><groupId>example</groupId><artifactId>api</artifactId><version>1.0</version></dependency>
         <dependency><groupId>example</groupId><artifactId>infrastructure</artifactId><version>1.0</version></dependency>
         <dependency><groupId>example</groupId><artifactId>common</artifactId><version>1.0</version><scope>test</scope></dependency>
+        <dependency><groupId>example</groupId><artifactId>common</artifactId><version>1.0</version><type>test-jar</type><classifier>tests</classifier><scope>test</scope></dependency>
     </dependencies>
 </project>

@@ -1,7 +1,7 @@
 # Maven Architecture Plugin
 
-`maven-architecture-plugin` 0.0.1-SNAPSHOT produces a Mermaid flowchart from the
-projects in the **selected Maven reactor**. It uses Maven's effective project
+`maven-architecture-plugin` 0.0.1-SNAPSHOT produces Mermaid flowcharts and a
+versioned JSON graph from the projects in the **selected Maven reactor**. It uses Maven's effective project
 models, not a second pass over POM files. By default it draws a simplified
 **build-level** diagram showing which modules can be built in parallel; a
 `full` diagram distinguishing aggregation (listed `<modules>`), inheritance
@@ -106,6 +106,37 @@ diagnostic as this report. Maven may reject an actual cyclic reactor before it
 can run a goal; the graph analyzer itself is Maven-independent and can analyze
 such graph fixtures directly.
 
+## JSON graph export
+
+Export the complete declared architecture graph independently of the Mermaid
+filters:
+
+```bash
+mvn io.github.mjhaugsdal:maven-architecture-plugin:0.0.1-SNAPSHOT:json
+mvn architecture:json -Darchitecture.jsonOutputFile=target/architecture/graph.json
+```
+
+The `json` goal defaults to
+`${project.build.directory}/architecture/architecture.json`. Schema version 1
+has top-level `schemaVersion`, `nodes`, and `edges` fields. `nodes` contains
+reactor modules (`kind: "module"`) and external dependency artifacts
+(`kind: "external"`). Module node metadata is allowlisted to Maven coordinates,
+packaging, name, and parent ID; external node metadata is coordinates, type,
+and classifier. Filesystem directories and arbitrary Maven properties are
+never exported.
+
+Node IDs are stable coordinate-based values: `module:<groupId>:<artifactId>:<version>`
+and `external:<groupId>:<artifactId>:<version>:<type>:<classifier>`, with each
+coordinate component UTF-8 URL-encoded (a missing component is `~`). Edges are
+ordered aggregation, inheritance, and dependency relationships. Dependency
+edges preserve declared scope, version, type, and classifier, including
+external dependencies and scopes omitted from the Mermaid diagrams. Modules,
+external nodes, edges, and object fields have deterministic ordering, so
+shuffling the reactor input produces identical JSON.
+
+The integration-test consumer parses this output with Groovy's JSON parser and
+checks module and external nodes, all edge kinds, and dependency metadata.
+
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
 does not require Mermaid CLI or a browser.
@@ -188,10 +219,11 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-Version 0.0.1 supports Mermaid module-level diagrams and direct dependency
-cycle reports. It does not resolve transitive dependencies, render external
-libraries, inspect source code, or enforce architecture rules. See the
-[roadmap](ROADMAP.md) for planned visualization, analysis, and validation work.
+Version 0.0.1 supports Mermaid module-level diagrams, JSON export of direct
+declared dependencies, and direct dependency cycle reports. It does not resolve
+transitive dependencies, inspect source code, or enforce architecture rules.
+See the [roadmap](ROADMAP.md) for planned visualization, analysis, and
+validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish
