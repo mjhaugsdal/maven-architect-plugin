@@ -1,9 +1,11 @@
 package io.github.mjhaugsdal.architecture;
 
 import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
+import io.github.mjhaugsdal.architecture.generator.JsonGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ArtifactDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
@@ -133,6 +135,75 @@ class ArchitectureTest {
         MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
         assertTrue(scanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
                 .dependencies().isEmpty());
+    }
+
+    @Test
+    void completeScannerKeepsReactorAndExternalDependencyMetadata() {
+        MavenProject source = project("source", "1", "jar", temp);
+        MavenProject target = project("target", "2", "jar", temp.resolve("target"));
+        Dependency reactorDependency = dependency("target", "2", "provided");
+        reactorDependency.setType("test-jar");
+        reactorDependency.setClassifier("tests");
+        source.getModel().addDependency(reactorDependency);
+        Dependency externalDependency = dependency("external", "3", "system");
+        externalDependency.setGroupId("outside");
+        externalDependency.setType("zip");
+        externalDependency.setClassifier("sources");
+        source.getModel().addDependency(externalDependency);
+
+        ArchitectureGraph graph = scanner().scanComplete(List.of(target, source));
+
+        assertEquals(2, graph.artifactDependencies().size());
+        assertTrue(graph.artifactDependencies().contains(new ArtifactDependency(
+                new ModuleId("example", "source", "1"), new ModuleId("example", "target", "2"),
+                "example", "target", "2", "test-jar", "tests", "provided")));
+        assertTrue(graph.artifactDependencies().contains(new ArtifactDependency(
+                new ModuleId("example", "source", "1"), null,
+                "outside", "external", "3", "zip", "sources", "system")));
+        assertTrue(graph.dependencies().isEmpty());
+    }
+
+    @Test
+    void jsonExportIsStableCompleteAndOmitsMachinePaths() {
+        ModuleId parent = new ModuleId("example", "parent", "1");
+        ModuleId source = new ModuleId("example", "source", "1");
+        ModuleId target = new ModuleId("example", "target", "2");
+        ArchitectureGraph first = new ArchitectureGraph();
+        first.addModule(new ArchitectureModule(source, "jar", "Source \"module\"", temp.toString(), parent));
+        first.addModule(new ArchitectureModule(parent, "pom", null, temp.toString(), null));
+        first.addModule(new ArchitectureModule(target, "jar", "Target", temp.toString(), parent));
+        first.addRelationship(new ModuleRelationship(parent, source, ModuleRelationship.Type.AGGREGATION));
+        first.addRelationship(new ModuleRelationship(parent, source, ModuleRelationship.Type.INHERITANCE));
+        first.addArtifactDependency(new ArtifactDependency(source, target, "example", "target", "2",
+                "test-jar", "tests", "provided"));
+        first.addArtifactDependency(new ArtifactDependency(source, null, "outside", "library", "3",
+                "zip", null, "runtime"));
+
+        ArchitectureGraph shuffled = new ArchitectureGraph();
+        shuffled.addModule(new ArchitectureModule(target, "jar", "Target", "/different/path", parent));
+        shuffled.addModule(new ArchitectureModule(parent, "pom", null, "/different/path", null));
+        shuffled.addModule(new ArchitectureModule(source, "jar", "Source \"module\"", "/different/path", parent));
+        shuffled.addArtifactDependency(new ArtifactDependency(source, null, "outside", "library", "3",
+                "zip", null, "runtime"));
+        shuffled.addArtifactDependency(new ArtifactDependency(source, target, "example", "target", "2",
+                "test-jar", "tests", "provided"));
+        shuffled.addRelationship(new ModuleRelationship(parent, source, ModuleRelationship.Type.INHERITANCE));
+        shuffled.addRelationship(new ModuleRelationship(parent, source, ModuleRelationship.Type.AGGREGATION));
+
+        String json = new JsonGenerator().generate(first);
+        assertEquals(json, new JsonGenerator().generate(shuffled));
+        assertTrue(json.startsWith("{\n  \"schemaVersion\": 1,\n"));
+        assertTrue(json.contains("\"kind\": \"external\", \"groupId\": \"outside\""));
+        assertTrue(json.contains("\"kind\": \"inheritance\""));
+        assertTrue(json.contains("\"kind\": \"aggregation\""));
+        assertTrue(json.contains("\"kind\": \"dependency\", \"scope\": \"provided\", \"version\": \"2\", "
+                + "\"type\": \"test-jar\", \"classifier\": \"tests\""));
+        assertTrue(json.contains("\"kind\": \"dependency\", \"scope\": \"runtime\", \"version\": \"3\", "
+                + "\"type\": \"zip\", \"classifier\": null"));
+        assertTrue(json.contains("\"name\": \"Source \\\"module\\\"\""));
+        assertFalse(json.contains(temp.toString()));
+        assertFalse(json.contains("/different/path"));
+        assertFalse(json.contains("\"directory\""));
     }
 
     @Test
