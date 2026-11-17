@@ -2,6 +2,7 @@ package io.github.mjhaugsdal.architecture.scanner;
 
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ArtifactDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
@@ -26,7 +27,7 @@ public final class ProjectScanner {
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
-        return scan(projects, includeTestDependencies, false);
+        return scan(projects, includeTestDependencies, false, false);
     }
 
     /**
@@ -34,10 +35,16 @@ public final class ProjectScanner {
      * classifier, because Maven orders the build on all of them.
      */
     public ArchitectureGraph scanBuildOrder(List<MavenProject> projects) {
-        return scan(projects, true, true);
+        return scan(projects, true, true, false);
     }
 
-    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes) {
+    /** Scans every direct dependency declaration for a complete graph export. */
+    public ArchitectureGraph scanComplete(List<MavenProject> projects) {
+        return scan(projects, true, true, true);
+    }
+
+    private ArchitectureGraph scan(
+            List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes, boolean complete) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
         }
@@ -80,20 +87,33 @@ public final class ProjectScanner {
             for (Dependency dependency : project.getDependencies()) {
                 String scope = dependency.getScope() == null || dependency.getScope().isBlank()
                         ? "compile" : dependency.getScope();
+                String type = dependency.getType() == null || dependency.getType().isBlank()
+                        ? "jar" : dependency.getType();
+                String classifier = dependency.getClassifier() == null || dependency.getClassifier().isBlank()
+                        ? null : dependency.getClassifier();
+                String version = dependency.getVersion() == null || dependency.getVersion().isBlank()
+                        ? null : dependency.getVersion();
+                if (complete && dependency.getGroupId() != null && !dependency.getGroupId().isBlank()
+                        && dependency.getArtifactId() != null && !dependency.getArtifactId().isBlank()) {
+                    ModuleId target = version == null ? null : resolveTarget(dependency, reactor);
+                    graph.addArtifactDependency(new ArtifactDependency(source, target, dependency.getGroupId(),
+                            dependency.getArtifactId(), version, type, classifier, scope));
+                }
                 if (!allScopes && !("compile".equals(scope) || "runtime".equals(scope)
                         || (includeTestDependencies && "test".equals(scope)))) {
                     continue;
                 }
-                if (!allScopes && dependency.getClassifier() != null && !dependency.getClassifier().isBlank()) {
+                if (!allScopes && classifier != null) {
                     continue;
                 }
-                if (dependency.getGroupId() == null || dependency.getArtifactId() == null
-                        || dependency.getVersion() == null) {
+                if (dependency.getGroupId() == null || dependency.getGroupId().isBlank()
+                        || dependency.getArtifactId() == null || dependency.getArtifactId().isBlank()
+                        || version == null) {
                     continue;
                 }
                 ModuleId target = resolveTarget(dependency, reactor);
                 MavenProject targetProject = target == null ? null : reactor.get(target);
-                if (targetProject != null && (allScopes || matchesType(dependency, targetProject))) {
+                if (!complete && targetProject != null && (allScopes || matchesType(dependency, targetProject))) {
                     graph.addDependency(new ModuleDependency(source, target, scope));
                 }
             }
