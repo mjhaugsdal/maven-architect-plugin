@@ -48,7 +48,7 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 ["domain:common", "infrastructure:domain", "infrastructure:common", "api:domain",
  "application:api", "application:infrastructure"].each { pair ->
     def (from, to) = pair.split(":")
-    assert diagram.contains("${nodes[from]} -.-> ${nodes[to]}")
+    assert diagram.contains("${nodes[from]} -.->|compile| ${nodes[to]}")
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
@@ -57,4 +57,4 @@ runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependenc
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
-assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+assert testOutput.getText("UTF-8").contains("${nodes['application']} -.->|test| ${nodes['common']}")

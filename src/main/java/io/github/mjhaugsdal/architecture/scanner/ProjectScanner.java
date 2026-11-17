@@ -2,6 +2,7 @@ package io.github.mjhaugsdal.architecture.scanner;
 
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ExternalDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
@@ -26,7 +27,12 @@ public final class ProjectScanner {
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
-        return scan(projects, includeTestDependencies, false);
+        return scan(projects, includeTestDependencies, null, false);
+    }
+
+    public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, String dependencyScope,
+            boolean includeExternalDependencies) {
+        return scan(projects, includeTestDependencies, false, dependencyScope, includeExternalDependencies);
     }
 
     /**
@@ -34,10 +40,11 @@ public final class ProjectScanner {
      * classifier, because Maven orders the build on all of them.
      */
     public ArchitectureGraph scanBuildOrder(List<MavenProject> projects) {
-        return scan(projects, true, true);
+        return scan(projects, true, true, null, false);
     }
 
-    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes) {
+    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes,
+            String dependencyScope, boolean includeExternalDependencies) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
         }
@@ -80,21 +87,26 @@ public final class ProjectScanner {
             for (Dependency dependency : project.getDependencies()) {
                 String scope = dependency.getScope() == null || dependency.getScope().isBlank()
                         ? "compile" : dependency.getScope();
-                if (!allScopes && !("compile".equals(scope) || "runtime".equals(scope)
-                        || (includeTestDependencies && "test".equals(scope)))) {
+                boolean includedScope = dependencyScope == null
+                        ? "compile".equals(scope) || "runtime".equals(scope)
+                                || (includeTestDependencies && "test".equals(scope))
+                        : dependencyScope.equals(scope);
+                if (!allScopes && !includedScope) {
                     continue;
                 }
                 if (!allScopes && dependency.getClassifier() != null && !dependency.getClassifier().isBlank()) {
                     continue;
                 }
-                if (dependency.getGroupId() == null || dependency.getArtifactId() == null
-                        || dependency.getVersion() == null) {
+                if (dependency.getGroupId() == null || dependency.getArtifactId() == null) {
                     continue;
                 }
-                ModuleId target = resolveTarget(dependency, reactor);
+                ModuleId target = dependency.getVersion() == null ? null : resolveTarget(dependency, reactor);
                 MavenProject targetProject = target == null ? null : reactor.get(target);
                 if (targetProject != null && (allScopes || matchesType(dependency, targetProject))) {
                     graph.addDependency(new ModuleDependency(source, target, scope));
+                } else if (targetProject == null && includeExternalDependencies) {
+                    graph.addExternalDependency(new ExternalDependency(source, dependency.getGroupId(),
+                            dependency.getArtifactId(), dependency.getVersion(), scope));
                 }
             }
         }

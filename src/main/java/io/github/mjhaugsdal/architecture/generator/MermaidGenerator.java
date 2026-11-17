@@ -2,6 +2,7 @@ package io.github.mjhaugsdal.architecture.generator;
 
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ExternalDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 /** Converts a Maven-independent architecture graph to a Mermaid flowchart. */
 public final class MermaidGenerator {
@@ -30,6 +32,18 @@ public final class MermaidGenerator {
             }
             output.append("    ").append(node).append("[\"").append(escape(label)).append("\"]\n");
         }
+        Map<String, String> externalNodes = new TreeMap<>();
+        if (includeDependencies) {
+            for (ExternalDependency dependency : graph.externalDependencies()) {
+                if (!externalNodes.containsKey(dependency.label())) {
+                    externalNodes.put(dependency.label(), "x" + externalNodes.size());
+                }
+            }
+        }
+        for (Map.Entry<String, String> externalNode : externalNodes.entrySet()) {
+            output.append("    ").append(externalNode.getValue()).append("([\"")
+                    .append(escape(externalNode.getKey())).append("\"])\n");
+        }
         if (includeHierarchy) {
             for (ModuleRelationship relationship : graph.relationships()) {
                 output.append("    ").append(nodes.get(relationship.from()));
@@ -44,7 +58,15 @@ public final class MermaidGenerator {
         if (includeDependencies) {
             Set<String> edges = new HashSet<>();
             for (ModuleDependency dependency : graph.dependencies()) {
-                String edge = "    " + nodes.get(dependency.from()) + " -.-> " + nodes.get(dependency.to()) + "\n";
+                String edge = "    " + nodes.get(dependency.from()) + " -.->|" + escape(dependency.scope()) + "| "
+                        + nodes.get(dependency.to()) + "\n";
+                if (edges.add(edge)) {
+                    output.append(edge);
+                }
+            }
+            for (ExternalDependency dependency : graph.externalDependencies()) {
+                String edge = "    " + nodes.get(dependency.from()) + " -.->|" + escape(dependency.scope()) + "| "
+                        + externalNodes.get(dependency.label()) + "\n";
                 if (edges.add(edge)) {
                     output.append(edge);
                 }

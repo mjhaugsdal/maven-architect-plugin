@@ -7,6 +7,7 @@ import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
@@ -20,6 +21,9 @@ import org.apache.maven.project.MavenProject;
 /** Generates a Mermaid diagram of the currently selected Maven reactor. */
 @Mojo(name = "diagram", aggregator = true, defaultPhase = LifecyclePhase.NONE, threadSafe = true)
 public final class DiagramMojo extends AbstractMojo {
+    private static final List<String> DEPENDENCY_SCOPES =
+            List.of("compile", "runtime", "provided", "test", "system");
+
     @Component
     private ArtifactHandlerManager artifactHandlerManager;
 
@@ -53,9 +57,13 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeTestDependencies")
     private boolean includeTestDependencies;
 
-    /** Reserved for a later release; external dependency diagrams are not yet supported. */
+    /** Include dependencies on artifacts outside the selected reactor in full diagrams. */
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
+
+    /** Optionally show only dependencies in this scope in a full diagram. */
+    @Parameter(property = "architecture.dependencyScope")
+    private String dependencyScope;
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -65,8 +73,10 @@ public final class DiagramMojo extends AbstractMojo {
         if (!project.equals(session.getProjects().get(0))) {
             return;
         }
-        if (includeExternalDependencies) {
-            throw new MojoExecutionException("includeExternalDependencies is not supported in version 0.0.1");
+        if (dependencyScope != null && !dependencyScope.isBlank()
+                && !DEPENDENCY_SCOPES.contains(dependencyScope.trim())) {
+            throw new MojoExecutionException("dependencyScope must be one of " + DEPENDENCY_SCOPES
+                    + ", not '" + dependencyScope + "'");
         }
         boolean buildLevels = "build-levels".equals(diagramType);
         if (!buildLevels && !"full".equals(diagramType)) {
@@ -81,7 +91,10 @@ public final class DiagramMojo extends AbstractMojo {
             if (buildLevels) {
                 diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
             } else {
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies);
+                String selectedScope = dependencyScope == null || dependencyScope.isBlank()
+                        ? null : dependencyScope.trim();
+                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies, selectedScope,
+                        includeExternalDependencies);
                 diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
             }
             new DiagramWriter().write(outputFile.toPath(), diagram);

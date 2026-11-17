@@ -12,6 +12,7 @@ import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
@@ -103,6 +104,39 @@ class ArchitectureTest {
         Dependency wrongVersion = dependency("target", "2", "compile");
         source.getModel().addDependency(wrongVersion);
         assertTrue(scanner().scan(List.of(source, target), true).dependencies().isEmpty());
+    }
+
+    @Test
+    void scopeSelectorFiltersInternalAndExternalDependenciesAndGeneratorLabelsScopes() {
+        MavenProject source = project("source", "1", "jar", temp);
+        MavenProject target = project("target", "1", "jar", temp.resolve("target"));
+        Dependency omittedScope = dependency("target", "1", null);
+        source.getModel().addDependency(omittedScope);
+        source.getModel().addDependency(dependency("outside-compile", "1", "compile"));
+        for (String scope : List.of("runtime", "provided", "test", "system")) {
+            source.getModel().addDependency(dependency("target", "1", scope));
+            source.getModel().addDependency(dependency("outside-" + scope, "1", scope));
+        }
+
+        ArchitectureGraph defaultGraph = scanner().scan(List.of(source, target), false);
+        assertTrue(defaultGraph.dependencies().contains(new ModuleDependency(
+                new ModuleId("example", "source", "1"), new ModuleId("example", "target", "1"), "compile")));
+        assertTrue(defaultGraph.dependencies().stream().noneMatch(edge ->
+                Set.of("provided", "system", "test").contains(edge.scope())));
+
+        for (String scope : List.of("compile", "runtime", "provided", "test", "system")) {
+            ArchitectureGraph filtered = scanner().scan(List.of(source, target), false, scope, true);
+            assertEquals(1, filtered.dependencies().size());
+            assertEquals(scope, filtered.dependencies().iterator().next().scope());
+            assertEquals(1, filtered.externalDependencies().size());
+            assertEquals(scope, filtered.externalDependencies().iterator().next().scope());
+            String diagram = new MermaidGenerator().generate(filtered, false, true);
+            assertTrue(diagram.contains("-.->|" + scope + "|"));
+            assertTrue(diagram.contains("x0([\"example:outside-" + scope + ":1\"])"));
+        }
+
+        ArchitectureGraph selectedTest = scanner().scan(List.of(source, target), false, "test", false);
+        assertEquals(1, selectedTest.dependencies().size());
     }
 
     @Test
@@ -211,8 +245,8 @@ class ArchitectureTest {
         assertEquals(diagram, new MermaidGenerator().generate(graph, true, true));
         assertTrue(diagram.contains("n0[\"Name #34;#60;x#62;#34; (a:module:1)\"]"));
         assertTrue(diagram.contains("n1[\"Name #34;#60;x#62;#34; (b:module:1)\"]"));
-        assertEquals(1, diagram.split("n0 -.-> n1", -1).length - 1);
-        assertTrue(diagram.contains("n1 -.-> n0"));
+        assertEquals(1, diagram.split("n0 -.->\\|compile\\| n1", -1).length - 1);
+        assertTrue(diagram.contains("n1 -.->|runtime| n0"));
     }
 
     @Test
