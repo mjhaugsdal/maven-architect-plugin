@@ -163,9 +163,9 @@ module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
 Version 0.0.1 only supports Mermaid module-level diagrams. It does not resolve
-transitive dependencies, render external libraries, inspect source code, or enforce architecture rules. Future releases could add other
-diagram formats, grouping, class/package analysis, and architecture validation
-without changing the Maven scanner's graph semantics.
+transitive dependencies, render external libraries, inspect source code, or
+enforce architecture rules. See the [roadmap](ROADMAP.md) for planned
+visualization, analysis, and validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish
