@@ -224,9 +224,9 @@ class ArchitectureTest {
         String content = generator.generate(graph, true, true);
         assertTrue(content.contains("n0[\"a\"]"));
         Path output = temp.resolve("nested/diagram.mmd");
-        new DiagramWriter().write(output, content);
+        assertTrue(new DiagramWriter().write(output, content));
         var modified = Files.getLastModifiedTime(output);
-        new DiagramWriter().write(output, content);
+        assertFalse(new DiagramWriter().write(output, content));
         assertEquals(modified, Files.getLastModifiedTime(output));
         assertThrows(IllegalArgumentException.class, () -> new DiagramWriter().write(output, ""));
         assertThrows(IllegalArgumentException.class, () -> scanner().scan(List.of(), false));

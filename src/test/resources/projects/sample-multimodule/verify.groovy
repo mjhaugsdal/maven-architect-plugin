@@ -6,6 +6,16 @@ def runGoal = { List<String> properties ->
     def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
     String log = process.inputStream.getText("UTF-8")
     assert process.waitFor() == 0 : log
+    log
+}
+
+def failGoal = { List<String> properties ->
+    def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}"] + properties +
+            ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
+    def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
+    String log = process.inputStream.getText("UTF-8")
+    assert process.waitFor() != 0 : log
+    log
 }
 
 File levelsOutput = new File(basedir, "target/architecture/architecture.mmd")
@@ -32,6 +42,10 @@ assert levelsOutput.getText("UTF-8") == """flowchart TD
     L1 --> L2
     L2 --> L3
 """
+String defaultLog = runGoal([])
+assert defaultLog.contains("Mermaid architecture diagram:")
+assert !defaultLog.contains("Architecture diagram summary:")
+assert !defaultLog.contains("filters:")
 
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.outputFile=target/architecture/full.mmd"])
 File output = new File(basedir, "target/architecture/full.mmd")
@@ -58,3 +72,24 @@ runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependenc
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
 assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+
+List<String> verboseOptions = ["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
+        "-Darchitecture.verbose=true", "-Darchitecture.outputFile=target/architecture/verbose.mmd"]
+String verboseLog = runGoal(verboseOptions)
+assert verboseLog.contains("Architecture diagram summary: 6 selected projects, 6 rendered projects, 17 edges")
+assert verboseLog.contains("hierarchy=included, dependencies=compile/runtime/test")
+assert verboseLog.contains("output: ${new File(basedir, 'target/architecture/verbose.mmd').absolutePath} (written)")
+String unchangedLog = runGoal(verboseOptions)
+assert unchangedLog.contains("output: ${new File(basedir, 'target/architecture/verbose.mmd').absolutePath} (unchanged)")
+
+String buildLevelsLog = runGoal(["-Darchitecture.diagramType=build-levels", "-Darchitecture.verbose=true",
+        "-Darchitecture.outputFile=target/architecture/verbose-build-levels.mmd"])
+assert buildLevelsLog.contains("6 selected projects, 5 rendered projects, 3 edges")
+assert buildLevelsLog.contains("dependencies=all scopes and types, standalone aggregators=omitted")
+
+String invalidTypeLog = failGoal(["-Darchitecture.diagramType=unknown"])
+assert invalidTypeLog.contains("valid values are 'build-levels' and 'full'")
+String conflictingOptionsLog = failGoal(["-Darchitecture.includeTestDependencies=true"])
+assert conflictingOptionsLog.contains("only apply to diagramType='full'")
+String unsupportedOptionLog = failGoal(["-Darchitecture.includeExternalDependencies=true"])
+assert unsupportedOptionLog.contains("the valid value is false")
