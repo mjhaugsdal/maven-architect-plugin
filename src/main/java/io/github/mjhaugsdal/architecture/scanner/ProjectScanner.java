@@ -2,7 +2,9 @@ package io.github.mjhaugsdal.architecture.scanner;
 
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ExternalArtifact;
 import io.github.mjhaugsdal.architecture.model.ExternalDependency;
+import io.github.mjhaugsdal.architecture.model.ArtifactDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
@@ -27,12 +29,17 @@ public final class ProjectScanner {
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
-        return scan(projects, includeTestDependencies, null, false);
+        return scan(projects, includeTestDependencies, false, false, false, null);
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, String dependencyScope,
             boolean includeExternalDependencies) {
-        return scan(projects, includeTestDependencies, false, dependencyScope, includeExternalDependencies);
+        return scan(projects, includeTestDependencies, includeExternalDependencies, false, false, dependencyScope);
+    }
+
+    public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies,
+            boolean includeExternalDependencies) {
+        return scan(projects, includeTestDependencies, includeExternalDependencies, false, false, null);
     }
 
     /**
@@ -40,11 +47,17 @@ public final class ProjectScanner {
      * classifier, because Maven orders the build on all of them.
      */
     public ArchitectureGraph scanBuildOrder(List<MavenProject> projects) {
-        return scan(projects, true, true, null, false);
+        return scan(projects, true, false, true, false, null);
     }
 
-    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes,
-            String dependencyScope, boolean includeExternalDependencies) {
+    /** Scans every direct dependency declaration for a complete graph export. */
+    public ArchitectureGraph scanComplete(List<MavenProject> projects) {
+        return scan(projects, true, false, true, true, null);
+    }
+
+    private ArchitectureGraph scan(
+            List<MavenProject> projects, boolean includeTestDependencies, boolean includeExternalDependencies,
+            boolean allScopes, boolean complete, String dependencyScope) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
         }
@@ -87,6 +100,18 @@ public final class ProjectScanner {
             for (Dependency dependency : project.getDependencies()) {
                 String scope = dependency.getScope() == null || dependency.getScope().isBlank()
                         ? "compile" : dependency.getScope();
+                String type = dependency.getType() == null || dependency.getType().isBlank()
+                        ? "jar" : dependency.getType();
+                String classifier = dependency.getClassifier() == null || dependency.getClassifier().isBlank()
+                        ? null : dependency.getClassifier();
+                String version = dependency.getVersion() == null || dependency.getVersion().isBlank()
+                        ? null : dependency.getVersion();
+                if (complete && dependency.getGroupId() != null && !dependency.getGroupId().isBlank()
+                        && dependency.getArtifactId() != null && !dependency.getArtifactId().isBlank()) {
+                    ModuleId target = version == null ? null : resolveTarget(dependency, reactor);
+                    graph.addArtifactDependency(new ArtifactDependency(source, target, dependency.getGroupId(),
+                            dependency.getArtifactId(), version, type, classifier, scope));
+                }
                 boolean includedScope = dependencyScope == null
                         ? "compile".equals(scope) || "runtime".equals(scope)
                                 || (includeTestDependencies && "test".equals(scope))
@@ -94,19 +119,20 @@ public final class ProjectScanner {
                 if (!allScopes && !includedScope) {
                     continue;
                 }
-                if (!allScopes && dependency.getClassifier() != null && !dependency.getClassifier().isBlank()) {
+                if (!allScopes && !includeExternalDependencies && classifier != null) {
                     continue;
                 }
-                if (dependency.getGroupId() == null || dependency.getArtifactId() == null) {
+                if (dependency.getGroupId() == null || dependency.getGroupId().isBlank()
+                        || dependency.getArtifactId() == null || dependency.getArtifactId().isBlank()
+                        || version == null) {
                     continue;
                 }
-                ModuleId target = dependency.getVersion() == null ? null : resolveTarget(dependency, reactor);
+                ModuleId target = resolveTarget(dependency, reactor);
                 MavenProject targetProject = target == null ? null : reactor.get(target);
-                if (targetProject != null && (allScopes || matchesType(dependency, targetProject))) {
+                if (!complete && targetProject != null && (allScopes || matchesArtifact(dependency, targetProject))) {
                     graph.addDependency(new ModuleDependency(source, target, scope));
-                } else if (targetProject == null && includeExternalDependencies) {
-                    graph.addExternalDependency(new ExternalDependency(source, dependency.getGroupId(),
-                            dependency.getArtifactId(), dependency.getVersion(), scope));
+                } else if (!complete && includeExternalDependencies && !allScopes) {
+                    graph.addExternalDependency(new ExternalDependency(source, externalArtifact(dependency), scope));
                 }
             }
         }
@@ -142,12 +168,39 @@ public final class ProjectScanner {
         }
     }
 
-    private boolean matchesType(Dependency dependency, MavenProject target) {
-        String type = dependency.getType() == null || dependency.getType().isBlank() ? "jar" : dependency.getType();
-        ArtifactHandler dependencyHandler = artifactHandlerManager.getArtifactHandler(type);
+    private boolean matchesArtifact(Dependency dependency, MavenProject target) {
+        String type = dependencyType(dependency);
+        ArtifactHandler dependencyHandler = artifactHandlerManager == null
+                ? null : artifactHandlerManager.getArtifactHandler(type);
+        String classifier = dependencyClassifier(dependency, dependencyHandler);
+        ArtifactHandler targetHandler = target.getArtifact() == null
+                ? null : target.getArtifact().getArtifactHandler();
+        String targetClassifier = target.getArtifact() == null ? null : target.getArtifact().getClassifier();
+        if ((targetClassifier == null || targetClassifier.isBlank()) && targetHandler != null) {
+            targetClassifier = targetHandler.getClassifier();
+        }
         return dependencyHandler != null && target.getArtifact() != null
-                && target.getArtifact().getArtifactHandler() != null
-                && dependencyHandler.getExtension().equals(target.getArtifact().getArtifactHandler().getExtension());
+                && targetHandler != null && dependencyHandler.getExtension().equals(targetHandler.getExtension())
+                && classifier.equals(targetClassifier == null ? "" : targetClassifier);
+    }
+
+    private ExternalArtifact externalArtifact(Dependency dependency) {
+        String type = dependencyType(dependency);
+        ArtifactHandler handler = artifactHandlerManager == null
+                ? null : artifactHandlerManager.getArtifactHandler(type);
+        return new ExternalArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion(),
+                type, dependencyClassifier(dependency, handler));
+    }
+
+    private String dependencyType(Dependency dependency) {
+        return dependency.getType() == null || dependency.getType().isBlank() ? "jar" : dependency.getType();
+    }
+
+    private String dependencyClassifier(Dependency dependency, ArtifactHandler handler) {
+        if (dependency.getClassifier() != null && !dependency.getClassifier().isBlank()) {
+            return dependency.getClassifier();
+        }
+        return handler == null || handler.getClassifier() == null ? "" : handler.getClassifier();
     }
 
     private ModuleId id(String group, String artifact, String version) {

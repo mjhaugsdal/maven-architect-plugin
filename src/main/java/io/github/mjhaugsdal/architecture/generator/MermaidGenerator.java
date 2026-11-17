@@ -2,6 +2,7 @@ package io.github.mjhaugsdal.architecture.generator;
 
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ExternalArtifact;
 import io.github.mjhaugsdal.architecture.model.ExternalDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
@@ -10,13 +11,13 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 
 /** Converts a Maven-independent architecture graph to a Mermaid flowchart. */
 public final class MermaidGenerator {
     public String generate(ArchitectureGraph graph, boolean includeHierarchy, boolean includeDependencies) {
         StringBuilder output = new StringBuilder("flowchart TD\n");
         Map<ModuleId, String> nodes = new HashMap<>();
+        Map<ExternalArtifact, String> externalNodes = new HashMap<>();
         Map<String, Integer> labelCounts = new HashMap<>();
         for (ArchitectureModule module : graph.modules()) {
             String label = displayName(module);
@@ -32,17 +33,13 @@ public final class MermaidGenerator {
             }
             output.append("    ").append(node).append("[\"").append(escape(label)).append("\"]\n");
         }
-        Map<String, String> externalNodes = new TreeMap<>();
         if (includeDependencies) {
-            for (ExternalDependency dependency : graph.externalDependencies()) {
-                if (!externalNodes.containsKey(dependency.label())) {
-                    externalNodes.put(dependency.label(), "x" + externalNodes.size());
-                }
+            for (ExternalArtifact artifact : graph.externalArtifacts()) {
+                String node = "n" + index++;
+                externalNodes.put(artifact, node);
+                output.append("    ").append(node).append("[\"")
+                        .append(escape(externalLabel(artifact))).append("\"]\n");
             }
-        }
-        for (Map.Entry<String, String> externalNode : externalNodes.entrySet()) {
-            output.append("    ").append(externalNode.getValue()).append("([\"")
-                    .append(escape(externalNode.getKey())).append("\"])\n");
         }
         if (includeHierarchy) {
             for (ModuleRelationship relationship : graph.relationships()) {
@@ -66,13 +63,24 @@ public final class MermaidGenerator {
             }
             for (ExternalDependency dependency : graph.externalDependencies()) {
                 String edge = "    " + nodes.get(dependency.from()) + " -.->|" + escape(dependency.scope()) + "| "
-                        + externalNodes.get(dependency.label()) + "\n";
+                        + externalNodes.get(dependency.to()) + "\n";
                 if (edges.add(edge)) {
                     output.append(edge);
                 }
             }
         }
         return output.toString();
+    }
+
+    private String externalLabel(ExternalArtifact artifact) {
+        String label = artifact.groupId() + ":" + artifact.artifactId() + ":" + artifact.version();
+        if (!artifact.classifier().isEmpty()) {
+            label += " (classifier=" + artifact.classifier() + ")";
+        }
+        if (!"jar".equals(artifact.type())) {
+            label += " (type=" + artifact.type() + ")";
+        }
+        return label;
     }
 
     static String displayName(ArchitectureModule module) {
