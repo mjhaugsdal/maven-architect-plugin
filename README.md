@@ -162,10 +162,17 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-Version 0.0.1 only supports Mermaid module-level diagrams. It does not resolve
-transitive dependencies, render external libraries, inspect source code, or
-enforce architecture rules. See the [roadmap](ROADMAP.md) for planned
-visualization, analysis, and validation work.
+`analyzer/` traverses direct reactor dependency edges in the declaring-module
+to dependency direction. It reports direct edges separately from deduplicated
+transitive reachability, includes compile and runtime scopes by default, and
+can optionally include test scope; provided, system, and other scopes are
+excluded. Reachability excludes the source module itself. Reported paths are
+simple directed paths, with at most 100 paths per source-target pair.
+
+Version 0.0.1 only supports Mermaid module-level diagrams; generated diagrams
+do not yet render transitive paths. It does not render external libraries,
+inspect source code, or enforce architecture rules. See the
+[roadmap](ROADMAP.md) for planned visualization, analysis, and validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish
