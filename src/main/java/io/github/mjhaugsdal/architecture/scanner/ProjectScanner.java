@@ -26,7 +26,12 @@ public final class ProjectScanner {
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
-        return scan(projects, includeTestDependencies, false);
+        return scan(projects, includeTestDependencies, false, false);
+    }
+
+    public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies,
+            boolean includeExternalDependencies) {
+        return scan(projects, includeTestDependencies, false, includeExternalDependencies);
     }
 
     /**
@@ -34,10 +39,11 @@ public final class ProjectScanner {
      * classifier, because Maven orders the build on all of them.
      */
     public ArchitectureGraph scanBuildOrder(List<MavenProject> projects) {
-        return scan(projects, true, true);
+        return scan(projects, true, true, false);
     }
 
-    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes) {
+    private ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, boolean allScopes,
+            boolean includeExternalDependencies) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
         }
@@ -95,6 +101,9 @@ public final class ProjectScanner {
                 MavenProject targetProject = target == null ? null : reactor.get(target);
                 if (targetProject != null && (allScopes || matchesType(dependency, targetProject))) {
                     graph.addDependency(new ModuleDependency(source, target, scope));
+                } else if (target == null && includeExternalDependencies) {
+                    graph.addExternalDependency(new ModuleDependency(source,
+                            id(dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion()), scope));
                 }
             }
         }
@@ -109,7 +118,7 @@ public final class ProjectScanner {
         if (reactor.containsKey(exact)) {
             return exact;
         }
-        if (!(version.startsWith("[") || version.startsWith("("))) {
+        if (!isVersionRange(version)) {
             return null;
         }
         try {
@@ -128,6 +137,10 @@ public final class ProjectScanner {
         } catch (InvalidVersionSpecificationException e) {
             return null;
         }
+    }
+
+    private boolean isVersionRange(String version) {
+        return version.startsWith("[") || version.startsWith("(");
     }
 
     private boolean matchesType(Dependency dependency, MavenProject target) {

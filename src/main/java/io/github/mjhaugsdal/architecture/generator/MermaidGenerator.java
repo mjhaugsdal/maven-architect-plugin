@@ -20,6 +20,11 @@ public final class MermaidGenerator {
             String label = displayName(module);
             labelCounts.merge(label, 1, Integer::sum);
         }
+        if (includeDependencies) {
+            for (ModuleId module : graph.externalModules()) {
+                labelCounts.merge(externalDisplayName(module), 1, Integer::sum);
+            }
+        }
         int index = 0;
         for (ArchitectureModule module : graph.modules()) {
             String node = "n" + index++;
@@ -29,6 +34,17 @@ public final class MermaidGenerator {
                 label += " (" + module.id().groupId() + ":" + module.id().artifactId() + ":" + module.id().version() + ")";
             }
             output.append("    ").append(node).append("[\"").append(escape(label)).append("\"]\n");
+        }
+        if (includeDependencies) {
+            for (ModuleId module : graph.externalModules()) {
+                String node = "n" + index++;
+                nodes.put(module, node);
+                String label = externalDisplayName(module);
+                if (labelCounts.get(label) > 1) {
+                    label += " (" + module.groupId() + ":" + module.artifactId() + ":" + module.version() + ")";
+                }
+                output.append("    ").append(node).append("[\"").append(escape(label)).append("\"]\n");
+            }
         }
         if (includeHierarchy) {
             for (ModuleRelationship relationship : graph.relationships()) {
@@ -55,6 +71,10 @@ public final class MermaidGenerator {
 
     static String displayName(ArchitectureModule module) {
         return module.name() == null || module.name().isBlank() ? module.id().artifactId() : module.name();
+    }
+
+    private static String externalDisplayName(ModuleId module) {
+        return module.groupId() + ":" + module.artifactId() + ":" + module.version();
     }
 
     static String escape(String label) {

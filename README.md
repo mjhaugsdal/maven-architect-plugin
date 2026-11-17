@@ -5,7 +5,8 @@ projects in the **selected Maven reactor**. It uses Maven's effective project
 models, not a second pass over POM files. By default it draws a simplified
 **build-level** diagram showing which modules can be built in parallel; a
 `full` diagram distinguishing aggregation (listed `<modules>`), inheritance
-(`<parent>`), and declared direct dependencies is also available. It does
+(`<parent>`), and declared direct dependencies, and a dependency-only
+projection are also available. It does
 **not** analyze Java classes or packages.
 
 ## Requirements and installation
@@ -64,22 +65,29 @@ Options and corresponding command-line properties:
 
 | Option | Property | Default |
 | --- | --- | --- |
-| `diagramType` | `architecture.diagramType` | `build-levels` (or `full`) |
+| `diagramType` | `architecture.diagramType` | `build-levels` (`full` or `dependency` are also valid) |
 | `outputFile` | `architecture.outputFile` | `${project.build.directory}/architecture/architecture.mmd` |
 | `includeModuleHierarchy` | `architecture.includeModuleHierarchy` | `true` |
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
 | `includeTestDependencies` | `architecture.includeTestDependencies` | `false` |
-| `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` (enabling it currently fails with an explanatory error) |
+| `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` |
 
 For example:
 
 ```bash
 mvn architecture:diagram -Darchitecture.outputFile=target/my-diagram.mmd
 mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeTestDependencies=true
+mvn architecture:diagram -Darchitecture.diagramType=dependency
 ```
 
-The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
-options only apply to the `full` diagram.
+Valid diagram types are `build-levels`, `full`, and `dependency`. The
+`dependency` preset retains every selected reactor module and shows only
+dependency edges, with no aggregation or inheritance edges. It always includes
+reactor dependencies; external dependency nodes and edges are included only
+when `includeExternalDependencies` is enabled. The
+`includeModuleHierarchy` and `includeDependencies` options customize only the
+`full` diagram. `includeTestDependencies` and `includeExternalDependencies`
+apply to both `full` and `dependency`.
 
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
@@ -148,11 +156,13 @@ deterministic and independent of artifact IDs. Names that collide are
 disambiguated by group ID and version. The graph keeps dependency scopes even
 though the initial diagram does not display them.
 
-Only dependencies declared by projects in the reactor are considered. Compile
-and runtime scopes are included by default; test scope is opt-in. Managed-only,
-provided, system, classifier-specific, and external dependencies are not
-rendered. Projects omitted from the selected reactor (for example with `-pl`)
-are not invented in the diagram.
+Only direct dependencies declared by projects in the reactor are considered.
+Compile and runtime scopes are included by default; test scope is opt-in.
+Managed-only, provided, system, and classifier-specific dependencies are not
+rendered. External dependencies are omitted unless
+`includeExternalDependencies` is enabled; when included, their Maven
+coordinates are shown as nodes. Projects omitted from the selected reactor
+(for example with `-pl`) are not invented in the diagram.
 
 ## Design and limitations
 
@@ -163,9 +173,9 @@ module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
 Version 0.0.1 only supports Mermaid module-level diagrams. It does not resolve
-transitive dependencies, render external libraries, inspect source code, or
-enforce architecture rules. See the [roadmap](ROADMAP.md) for planned
-visualization, analysis, and validation work.
+transitive dependencies, inspect source code, or enforce architecture rules.
+See the [roadmap](ROADMAP.md) for planned visualization, analysis, and
+validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish
