@@ -29,12 +29,17 @@ public final class ProjectScanner {
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies) {
-        return scan(projects, includeTestDependencies, false, false, false);
+        return scan(projects, includeTestDependencies, false, false, false, null);
+    }
+
+    public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies, String dependencyScope,
+            boolean includeExternalDependencies) {
+        return scan(projects, includeTestDependencies, includeExternalDependencies, false, false, dependencyScope);
     }
 
     public ArchitectureGraph scan(List<MavenProject> projects, boolean includeTestDependencies,
             boolean includeExternalDependencies) {
-        return scan(projects, includeTestDependencies, includeExternalDependencies, false, false);
+        return scan(projects, includeTestDependencies, includeExternalDependencies, false, false, null);
     }
 
     /**
@@ -42,17 +47,17 @@ public final class ProjectScanner {
      * classifier, because Maven orders the build on all of them.
      */
     public ArchitectureGraph scanBuildOrder(List<MavenProject> projects) {
-        return scan(projects, true, false, true, false);
+        return scan(projects, true, false, true, false, null);
     }
 
     /** Scans every direct dependency declaration for a complete graph export. */
     public ArchitectureGraph scanComplete(List<MavenProject> projects) {
-        return scan(projects, true, false, true, true);
+        return scan(projects, true, false, true, true, null);
     }
 
     private ArchitectureGraph scan(
             List<MavenProject> projects, boolean includeTestDependencies, boolean includeExternalDependencies,
-            boolean allScopes, boolean complete) {
+            boolean allScopes, boolean complete, String dependencyScope) {
         if (projects == null || projects.isEmpty()) {
             throw new IllegalArgumentException("No projects are available in the Maven reactor");
         }
@@ -107,8 +112,11 @@ public final class ProjectScanner {
                     graph.addArtifactDependency(new ArtifactDependency(source, target, dependency.getGroupId(),
                             dependency.getArtifactId(), version, type, classifier, scope));
                 }
-                if (!allScopes && !("compile".equals(scope) || "runtime".equals(scope)
-                        || (includeTestDependencies && "test".equals(scope)))) {
+                boolean includedScope = dependencyScope == null
+                        ? "compile".equals(scope) || "runtime".equals(scope)
+                                || (includeTestDependencies && "test".equals(scope))
+                        : dependencyScope.equals(scope);
+                if (!allScopes && !includedScope) {
                     continue;
                 }
                 if (!allScopes && !includeExternalDependencies && classifier != null) {

@@ -59,10 +59,10 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
     assert diagram.contains("${nodes['sample-multimodule']} --> ${nodes[child]}")
     assert diagram.contains("${nodes['sample-multimodule']} -->|inherits| ${nodes[child]}")
 }
-["domain:common", "infrastructure:domain", "infrastructure:common", "api:domain",
- "application:api", "application:infrastructure"].each { pair ->
-    def (from, to) = pair.split(":")
-    assert diagram.contains("${nodes[from]} -.-> ${nodes[to]}")
+["domain:common:compile", "infrastructure:domain:compile", "infrastructure:common:runtime",
+ "api:domain:compile", "application:api:compile", "application:infrastructure:compile"].each { pair ->
+    def (from, to, scope) = pair.split(":")
+    assert diagram.contains("${nodes[from]} -.->|${scope}| ${nodes[to]}")
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
@@ -80,7 +80,7 @@ String externalDiagram = externalOutput.getText("UTF-8")
 def externalNodes = [:]
 externalDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> externalNodes[label] = id }
 assert externalNodes["org.unrelated:external:1.0"]
-assert externalDiagram.contains("${nodes['api']} -.-> ${externalNodes['org.unrelated:external:1.0']}")
+assert externalDiagram.contains("${nodes['api']} -.->|compile| ${externalNodes['org.unrelated:external:1.0']}")
 
 runGoal(["-Darchitecture.jsonOutputFile=target/architecture/complete.json"], "json")
 File jsonOutput = new File(basedir, "target/architecture/complete.json")
@@ -105,7 +105,7 @@ runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependenc
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
-assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+assert testOutput.getText("UTF-8").contains("${nodes['application']} -.->|test| ${nodes['common']}")
 
 List<String> verboseOptions = ["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
         "-Darchitecture.verbose=true", "-Darchitecture.outputFile=target/architecture/verbose.mmd"]

@@ -54,6 +54,7 @@ To use the short form `mvn architecture:diagram`, declare the plugin under
         <includeDependencies>true</includeDependencies>
         <includeTestDependencies>false</includeTestDependencies>
         <includeExternalDependencies>false</includeExternalDependencies>
+        <dependencyScope>provided</dependencyScope>
       </configuration>
     </plugin>
   </plugins>
@@ -70,6 +71,7 @@ Options and corresponding command-line properties:
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
 | `includeTestDependencies` | `architecture.includeTestDependencies` | `false` |
 | `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` |
+| `dependencyScope` | `architecture.dependencyScope` | unset |
 | `verbose` | `architecture.verbose` | `false` |
 
 For example:
@@ -77,12 +79,22 @@ For example:
 ```bash
 mvn architecture:diagram -Darchitecture.outputFile=target/my-diagram.mmd
 mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeTestDependencies=true
+mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.dependencyScope=provided
 ```
 
 The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
 options only apply to the `full` diagram; setting non-default values with
 `diagramType=build-levels` is rejected. `includeExternalDependencies` only
-applies to the `full` diagram and is ignored by build-level diagrams. Set
+applies to the `full` diagram and is ignored by build-level diagrams.
+`dependencyScope` accepts one of
+`compile`, `runtime`, `provided`, `test`, or `system` and filters dependency
+edges in the `full` diagram; it does not affect build levels. When omitted,
+the existing defaults are preserved: compile and runtime are included, and
+test is included only when `includeTestDependencies` is true. An explicit
+`dependencyScope` selects only that scope, including `test` even when
+`includeTestDependencies` is false. Invalid values report the valid choices.
+`includeExternalDependencies` adds matching dependencies outside the selected
+reactor to full diagrams, using the same scope selection. Set
 `architecture.verbose=true` to log selected and rendered project counts,
 generated edge counts, applied filters, and whether the output was written or
 unchanged. Default logging remains limited to the output path.
@@ -208,22 +220,25 @@ flowchart TD
     n2 -->|inherits| n0
     n2 --> n1
     n2 -->|inherits| n1
-    n1 -.-> n0
+    n1 -.->|compile| n0
 ```
 
 Solid arrows represent aggregation; solid arrows labeled `inherits` represent
-parent-POM inheritance; dotted arrows represent dependencies. A project can
-have both aggregation and inheritance edges, or neither. Node IDs are
-deterministic and independent of artifact IDs. Names that collide are
-disambiguated by group ID and version. The graph keeps dependency scopes even
-though the initial diagram does not display them.
+parent-POM inheritance; dotted arrows labeled by effective Maven scope
+represent dependencies. A project can
+have both aggregation and inheritance edges, or neither. Node IDs are deterministic
+and independent of artifact IDs. Names that collide are disambiguated by group
+ID and version. An omitted dependency scope is treated as `compile`.
 
-Only dependencies declared by projects in the reactor are considered. Compile
-and runtime scopes are included by default; test scope is opt-in. Managed-only,
-provided, and system dependencies are not rendered. Classifier-specific
-dependencies are rendered as external artifacts when they do not match a
-selected reactor project's artifact. Projects omitted from the selected
-reactor (for example with `-pl`) are not invented in the diagram.
+Only dependencies declared by projects in the reactor are considered.
+Compile and runtime scopes are included by default; test scope is opt-in.
+Provided and system scopes can be selected with `dependencyScope`. Managed-only
+and classifier-specific dependencies are not rendered. External dependencies
+are rendered only when `includeExternalDependencies` is enabled. Projects
+omitted from the selected reactor (for example with `-pl`) are not invented in
+the diagram. Classifier-specific dependencies are rendered as external
+artifacts when they do not match a selected reactor project's artifact and
+external dependencies are enabled.
 
 ## Dependency metrics
 

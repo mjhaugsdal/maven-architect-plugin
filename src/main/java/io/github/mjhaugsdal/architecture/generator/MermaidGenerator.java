@@ -55,13 +55,14 @@ public final class MermaidGenerator {
         if (includeDependencies) {
             Set<String> edges = new HashSet<>();
             for (ModuleDependency dependency : graph.dependencies()) {
-                String edge = "    " + nodes.get(dependency.from()) + " -.-> " + nodes.get(dependency.to()) + "\n";
+                String edge = "    " + nodes.get(dependency.from()) + " -.->|" + escape(dependency.scope()) + "| "
+                        + nodes.get(dependency.to()) + "\n";
                 if (edges.add(edge)) {
                     output.append(edge);
                 }
             }
             for (ExternalDependency dependency : graph.externalDependencies()) {
-                String edge = "    " + nodes.get(dependency.from()) + " -.-> "
+                String edge = "    " + nodes.get(dependency.from()) + " -.->|" + escape(dependency.scope()) + "| "
                         + externalNodes.get(dependency.to()) + "\n";
                 if (edges.add(edge)) {
                     output.append(edge);
