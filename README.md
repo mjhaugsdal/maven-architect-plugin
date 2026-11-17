@@ -18,11 +18,12 @@ verified.
 mvn clean install
 ```
 
-This runs JUnit 5 tests and a Maven Invoker integration test against
-`src/test/resources/projects/sample-multimodule`. The fixture has `common`,
-`domain`, `infrastructure`, `api`, and `application` modules; it verifies both
-the default and test-dependency-enabled diagrams. The second invocation runs
-offline against the Invoker's local repository.
+This runs JUnit 5 tests and Maven Invoker integration tests. The
+`sample-multimodule` fixture has `common`, `domain`, `infrastructure`, `api`,
+and `application` modules; it verifies both the default and
+test-dependency-enabled diagrams. A separate `reactor-cycle` fixture verifies
+that Maven rejects cyclic reactor dependencies before the plugin goal runs.
+The invocations run offline against the Invoker's local repository.
 
 GitHub Actions runs `mvn -B --no-transfer-progress clean install` with Java 17
 on pushes, pull requests, and manual workflow dispatches.
@@ -192,7 +193,8 @@ resolve artifacts or invent projects omitted from the selected reactor. The
 same scope filter applies to internal and external dependency edges. External
 dependencies do not affect build levels. A dependency cycle fails the goal
 with the same component and path diagnostics used by the circular dependency
-report.
+report. Maven may reject an actual reactor cycle before a goal executes; the
+cycle analyzer is also tested directly with Maven-independent graph fixtures.
 
 ## Full diagram semantics
 
@@ -249,9 +251,10 @@ dependencies between components add one level.
 ## Design and limitations
 
 `model/` contains the Mermaid-independent graph, `scanner/` maps Maven
-projects into that graph, `generator/` renders Mermaid, `writer/` persists the
-output, and `mojo/` owns Maven configuration. The plugin is a single Maven
-module. The Java package `io.github.mjhaugsdal.architecture` is
+projects into that graph, `analyzer/` detects dependency cycles,
+`generator/` renders Mermaid, `writer/` persists the output, and `mojo/` owns
+Maven configuration. The plugin is a single Maven module. The Java package
+`io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
 Version 0.0.1 supports Mermaid module-level diagrams, JSON export of direct

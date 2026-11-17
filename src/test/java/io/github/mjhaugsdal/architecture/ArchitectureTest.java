@@ -19,7 +19,10 @@ import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
@@ -394,6 +397,7 @@ class ArchitectureTest {
                 assertThrows(IllegalArgumentException.class, () -> new BuildLevelGenerator().generate(graph))
                         .getMessage());
         assertEquals(List.of(a, b), new DependencyPathFinder().findPath(graph, a, b).orElseThrow());
+        assertEquals(List.of(a, b, a), analysis.cycles().get(0).path());
     }
 
     @Test
