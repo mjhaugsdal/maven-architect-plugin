@@ -211,6 +211,27 @@ provided, system, classifier-specific, and external dependencies are not
 rendered. Projects omitted from the selected reactor (for example with `-pl`)
 are not invented in the diagram.
 
+## Dependency metrics
+
+`analyzer/ArchitectureAnalyzer` computes immutable module metrics from an
+`ArchitectureGraph`. The module total includes every graph module, including
+isolated modules. Dependency edge totals, fan-in, and fan-out use distinct
+directed module pairs from `graph.dependencies()`; repeated declarations with
+different scopes count as one edge. The analyzer ignores aggregation and
+inheritance relationships. Consequently, the scopes represented depend on how
+the graph was scanned: the standard scanner includes compile/runtime and
+optionally test dependencies, while build-order scanning includes every
+declared reactor dependency scope.
+
+Fan-in is the number of distinct modules depending on a module, and fan-out is
+the number of distinct modules it depends on. The coupling score is their sum.
+Highest-coupling results are ordered by score descending, with `ModuleId`
+ascending as a deterministic tie-breaker. Dependency depth is the length of
+the longest dependency chain, with modules that have no dependencies at depth
+zero. Cycles are condensed into strongly connected components for depth
+calculation; every module in a cycle receives the same finite depth, and
+dependencies between components add one level.
+
 ## Design and limitations
 
 `model/` contains the Mermaid-independent graph, `scanner/` maps Maven
