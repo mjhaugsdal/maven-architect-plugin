@@ -69,7 +69,7 @@ Options and corresponding command-line properties:
 | `includeModuleHierarchy` | `architecture.includeModuleHierarchy` | `true` |
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
 | `includeTestDependencies` | `architecture.includeTestDependencies` | `false` |
-| `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` (enabling it currently fails with an explanatory error) |
+| `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` |
 
 For example:
 
@@ -78,8 +78,8 @@ mvn architecture:diagram -Darchitecture.outputFile=target/my-diagram.mmd
 mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeTestDependencies=true
 ```
 
-The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
-options only apply to the `full` diagram.
+The `includeModuleHierarchy`, `includeDependencies`, `includeTestDependencies`
+and `includeExternalDependencies` options only apply to the `full` diagram.
 
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
@@ -122,7 +122,13 @@ scope counts (including `test` and `provided`, and classified artifacts such as
 and aggregation relationships are not drawn and do not affect levels.
 Aggregator POMs (projects listing `<modules>`) are omitted unless another module
 depends on them or they declare reactor dependencies themselves. External
-dependencies are ignored. A dependency cycle fails the goal.
+dependencies are ignored by default. With `includeExternalDependencies=true`,
+unmatched direct dependencies are rendered as external artifact nodes in the
+full diagram. Matching uses the effective dependency declarations and selected
+reactor projects, including version, artifact type and classifier; it does not
+resolve artifacts or invent projects omitted from the selected reactor. The
+same scope filter applies to internal and external dependency edges. External
+dependencies do not affect build levels. A dependency cycle fails the goal.
 
 ## Full diagram semantics
 
@@ -150,9 +156,10 @@ though the initial diagram does not display them.
 
 Only dependencies declared by projects in the reactor are considered. Compile
 and runtime scopes are included by default; test scope is opt-in. Managed-only,
-provided, system, classifier-specific, and external dependencies are not
-rendered. Projects omitted from the selected reactor (for example with `-pl`)
-are not invented in the diagram.
+provided, and system dependencies are not rendered. Classifier-specific
+dependencies are rendered as external artifacts when they do not match a
+selected reactor project's artifact. Projects omitted from the selected
+reactor (for example with `-pl`) are not invented in the diagram.
 
 ## Design and limitations
 
@@ -162,8 +169,7 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-Version 0.0.1 only supports Mermaid module-level diagrams. It does not resolve
-transitive dependencies, render external libraries, inspect source code, or
+The plugin does not resolve transitive dependencies, inspect source code, or
 enforce architecture rules. See the [roadmap](ROADMAP.md) for planned
 visualization, analysis, and validation work.
 

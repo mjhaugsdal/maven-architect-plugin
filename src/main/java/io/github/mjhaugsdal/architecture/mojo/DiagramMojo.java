@@ -53,7 +53,7 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeTestDependencies")
     private boolean includeTestDependencies;
 
-    /** Reserved for a later release; external dependency diagrams are not yet supported. */
+    /** Include direct dependencies whose artifacts are outside the selected reactor. */
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
 
@@ -64,9 +64,6 @@ public final class DiagramMojo extends AbstractMojo {
         }
         if (!project.equals(session.getProjects().get(0))) {
             return;
-        }
-        if (includeExternalDependencies) {
-            throw new MojoExecutionException("includeExternalDependencies is not supported in version 0.0.1");
         }
         boolean buildLevels = "build-levels".equals(diagramType);
         if (!buildLevels && !"full".equals(diagramType)) {
@@ -81,7 +78,8 @@ public final class DiagramMojo extends AbstractMojo {
             if (buildLevels) {
                 diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
             } else {
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies);
+                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies,
+                        includeExternalDependencies);
                 diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
             }
             new DiagramWriter().write(outputFile.toPath(), diagram);

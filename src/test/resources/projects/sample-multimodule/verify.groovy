@@ -52,6 +52,21 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
+assert !diagram.contains("org.unrelated:external:1.0")
+
+runGoal(["-Darchitecture.includeExternalDependencies=true",
+        "-Darchitecture.outputFile=target/architecture/external-build-levels.mmd"])
+assert new File(basedir, "target/architecture/external-build-levels.mmd").getText("UTF-8") ==
+        levelsOutput.getText("UTF-8")
+
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeExternalDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/with-external.mmd"])
+File externalOutput = new File(basedir, "target/architecture/with-external.mmd")
+String externalDiagram = externalOutput.getText("UTF-8")
+def externalNodes = [:]
+externalDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> externalNodes[label] = id }
+assert externalNodes["org.unrelated:external:1.0"]
+assert externalDiagram.contains("${nodes['api']} -.-> ${externalNodes['org.unrelated:external:1.0']}")
 
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
