@@ -10,6 +10,7 @@ import io.github.mjhaugsdal.architecture.generator.JsonGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ExternalArtifact;
 import io.github.mjhaugsdal.architecture.model.ArtifactDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
@@ -140,6 +141,76 @@ class ArchitectureTest {
         MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
         assertTrue(scanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
                 .dependencies().isEmpty());
+    }
+
+    @Test
+    void scannerIncludesDeduplicatedExternalArtifactsAndMatchesFullCoordinates() {
+        MavenProject source = project("source", "1", "jar", temp);
+        source.getModel().addDependency(dependency("target", "1", "compile"));
+        source.getModel().addDependency(dependency("target", "2", "compile"));
+        Dependency classifiedTarget = dependency("target", "1", "compile");
+        classifiedTarget.setClassifier("tests");
+        source.getModel().addDependency(classifiedTarget);
+        Dependency testJarTarget = dependency("target", "1", "compile");
+        testJarTarget.setType("test-jar");
+        testJarTarget.setClassifier("tests");
+        source.getModel().addDependency(testJarTarget);
+        source.getModel().addDependency(dependency("shared", "1", "compile"));
+        source.getModel().addDependency(dependency("shared", "1", "compile"));
+        source.getModel().addDependency(dependency("shared", "2", "runtime"));
+        Dependency classifiedShared = dependency("shared", "1", "runtime");
+        classifiedShared.setClassifier("tests");
+        source.getModel().addDependency(classifiedShared);
+        source.getModel().addDependency(dependency("test-only", "1", "test"));
+        source.getModel().addDependency(dependency("provided-only", "1", "provided"));
+        MavenProject target = project("target", "1", "jar", temp.resolve("target"));
+
+        ArchitectureGraph defaultGraph = scanner().scan(List.of(source, target), false);
+        assertTrue(defaultGraph.externalArtifacts().isEmpty());
+
+        ArchitectureGraph graph = scanner().scan(List.of(source, target), false, true);
+        ModuleId sourceId = new ModuleId("example", "source", "1");
+        ModuleId targetId = new ModuleId("example", "target", "1");
+        assertEquals(1, graph.dependencies().size());
+        assertTrue(graph.dependencies().contains(new ModuleDependency(sourceId, targetId, "compile")));
+        assertEquals(6, graph.externalArtifacts().size());
+        assertEquals(6, graph.externalDependencies().size());
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "target", "1", "jar", "tests")));
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "target", "1", "test-jar", "tests")));
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "shared", "1", "jar", "")));
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "shared", "2", "jar", "")));
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "shared", "1", "jar", "tests")));
+        assertFalse(graph.externalArtifacts().stream().anyMatch(artifact ->
+                artifact.artifactId().equals("test-only") || artifact.artifactId().equals("provided-only")));
+
+        String diagram = new MermaidGenerator().generate(graph, true, true);
+        assertTrue(diagram.contains("example:shared:1"));
+        assertTrue(diagram.contains("example:shared:2"));
+        assertTrue(diagram.contains("example:shared:1 (classifier=tests)"));
+        assertTrue(diagram.contains("example:target:2"));
+        assertFalse(new MermaidGenerator().generate(graph, true, false).contains("example:shared"));
+
+        ArchitectureGraph withTests = scanner().scan(List.of(source, target), true, true);
+        assertTrue(withTests.externalArtifacts().stream()
+                .anyMatch(artifact -> artifact.artifactId().equals("test-only")));
+        assertFalse(withTests.externalArtifacts().stream()
+                .anyMatch(artifact -> artifact.artifactId().equals("provided-only")));
+    }
+
+    @Test
+    void scannerTreatsDependenciesOnProjectsOmittedFromSelectedReactorAsExternal() {
+        MavenProject source = project("source", "1", "jar", temp);
+        source.getModel().addDependency(dependency("omitted", "1", "compile"));
+
+        ArchitectureGraph graph = scanner().scan(List.of(source), false, true);
+
+        assertTrue(graph.externalArtifacts().contains(
+                new ExternalArtifact("example", "omitted", "1", "jar", "")));
     }
 
     @Test

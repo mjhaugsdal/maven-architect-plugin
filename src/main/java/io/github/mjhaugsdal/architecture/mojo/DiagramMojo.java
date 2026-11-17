@@ -53,7 +53,7 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeTestDependencies")
     private boolean includeTestDependencies;
 
-    /** Reserved for a later release; external dependency diagrams are not yet supported. */
+    /** Include direct dependencies whose artifacts are outside the selected reactor. */
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
 
@@ -77,7 +77,7 @@ public final class DiagramMojo extends AbstractMojo {
                 graph = scanner.scanBuildOrder(session.getProjects());
                 diagram = new BuildLevelGenerator().generate(graph);
             } else {
-                graph = scanner.scan(session.getProjects(), includeTestDependencies);
+                graph = scanner.scan(session.getProjects(), includeTestDependencies, includeExternalDependencies);
                 diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
             }
             boolean written = new DiagramWriter().write(outputFile.toPath(), diagram);
@@ -93,10 +93,6 @@ public final class DiagramMojo extends AbstractMojo {
     }
 
     private boolean validateParameters() throws MojoExecutionException {
-        if (includeExternalDependencies) {
-            throw new MojoExecutionException("architecture.includeExternalDependencies=true is not supported; "
-                    + "the valid value is false until external dependency diagrams are supported");
-        }
         boolean buildLevels = "build-levels".equals(diagramType);
         if (!buildLevels && !"full".equals(diagramType)) {
             throw new MojoExecutionException("Invalid architecture.diagramType '" + diagramType
@@ -123,7 +119,8 @@ public final class DiagramMojo extends AbstractMojo {
             String scopes = includeTestDependencies ? "compile/runtime/test" : "compile/runtime";
             filters += ", hierarchy=" + (includeModuleHierarchy ? "included" : "excluded")
                     + ", dependencies=" + (includeDependencies ? scopes : "excluded")
-                    + ", classified and external dependencies=excluded";
+                    + ", external dependencies="
+                    + (includeDependencies && includeExternalDependencies ? "included" : "excluded");
         }
         return "Architecture diagram summary: " + session.getProjects().size() + " selected projects, "
                 + renderedProjects + " rendered projects, " + edges + " edges; filters: " + filters

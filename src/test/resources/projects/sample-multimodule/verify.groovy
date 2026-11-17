@@ -66,6 +66,21 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
+assert !diagram.contains("org.unrelated:external:1.0")
+
+runGoal(["-Darchitecture.includeExternalDependencies=true",
+        "-Darchitecture.outputFile=target/architecture/external-build-levels.mmd"])
+assert new File(basedir, "target/architecture/external-build-levels.mmd").getText("UTF-8") ==
+        levelsOutput.getText("UTF-8")
+
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeExternalDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/with-external.mmd"])
+File externalOutput = new File(basedir, "target/architecture/with-external.mmd")
+String externalDiagram = externalOutput.getText("UTF-8")
+def externalNodes = [:]
+externalDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> externalNodes[label] = id }
+assert externalNodes["org.unrelated:external:1.0"]
+assert externalDiagram.contains("${nodes['api']} -.-> ${externalNodes['org.unrelated:external:1.0']}")
 
 runGoal(["-Darchitecture.jsonOutputFile=target/architecture/complete.json"], "json")
 File jsonOutput = new File(basedir, "target/architecture/complete.json")
@@ -110,5 +125,3 @@ String invalidTypeLog = failGoal(["-Darchitecture.diagramType=unknown"])
 assert invalidTypeLog.contains("valid values are 'build-levels' and 'full'")
 String conflictingOptionsLog = failGoal(["-Darchitecture.includeTestDependencies=true"])
 assert conflictingOptionsLog.contains("only apply to diagramType='full'")
-String unsupportedOptionLog = failGoal(["-Darchitecture.includeExternalDependencies=true"])
-assert unsupportedOptionLog.contains("the valid value is false")
