@@ -1,5 +1,6 @@
 package io.github.mjhaugsdal.architecture.generator;
 
+import io.github.mjhaugsdal.architecture.analyzer.DependencyCycleFinder;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
@@ -51,9 +52,16 @@ public final class BuildLevelGenerator {
             }
         }
 
+        new DependencyCycleFinder().findCycle(upstream).ifPresent(cycle -> {
+            String path = cycle.stream()
+                    .map(id -> id.groupId() + ":" + id.artifactId() + ":" + id.version())
+                    .collect(java.util.stream.Collectors.joining(" -> "));
+            throw new IllegalArgumentException("Dependency cycle detected: " + path);
+        });
+
         Map<ModuleId, Integer> levels = new HashMap<>();
         for (ModuleId id : modules.keySet()) {
-            level(id, upstream, levels, new HashSet<>());
+            level(id, upstream, levels);
         }
         Map<Integer, List<ArchitectureModule>> byLevel = new TreeMap<>();
         for (ArchitectureModule module : modules.values()) {
@@ -87,21 +95,15 @@ public final class BuildLevelGenerator {
         return output.toString();
     }
 
-    private int level(ModuleId id, Map<ModuleId, Set<ModuleId>> upstream, Map<ModuleId, Integer> levels,
-            Set<ModuleId> visiting) {
+    private int level(ModuleId id, Map<ModuleId, Set<ModuleId>> upstream, Map<ModuleId, Integer> levels) {
         Integer known = levels.get(id);
         if (known != null) {
             return known;
         }
-        if (!visiting.add(id)) {
-            throw new IllegalArgumentException("Dependency cycle detected involving " + id.groupId() + ":"
-                    + id.artifactId() + ":" + id.version());
-        }
         int level = 0;
         for (ModuleId dependency : upstream.get(id)) {
-            level = Math.max(level, level(dependency, upstream, levels, visiting) + 1);
+            level = Math.max(level, level(dependency, upstream, levels) + 1);
         }
-        visiting.remove(id);
         levels.put(id, level);
         return level;
     }

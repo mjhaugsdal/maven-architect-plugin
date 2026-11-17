@@ -1,5 +1,6 @@
 package io.github.mjhaugsdal.architecture;
 
+import io.github.mjhaugsdal.architecture.analyzer.DependencyCycleFinder;
 import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
@@ -11,7 +12,10 @@ import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
@@ -191,6 +195,40 @@ class ArchitectureTest {
         graph.addDependency(new ModuleDependency(b, a, "test"));
         assertThrows(IllegalArgumentException.class, () -> new BuildLevelGenerator().generate(graph));
         assertEquals("flowchart TD\n", new BuildLevelGenerator().generate(new ArchitectureGraph()));
+    }
+
+    @Test
+    void buildLevelCycleErrorReportsOnlyOrderedCompleteCoordinates() {
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId a = new ModuleId("g", "a", "1");
+        ModuleId b = new ModuleId("g", "b", "2");
+        ModuleId c = new ModuleId("g", "c", "3");
+        ModuleId unrelated = new ModuleId("other", "module", "4");
+        for (ModuleId id : List.of(a, b, c, unrelated)) {
+            graph.addModule(new ArchitectureModule(id, "jar", null, "", null));
+        }
+        graph.addDependency(new ModuleDependency(a, b, "compile"));
+        graph.addDependency(new ModuleDependency(b, c, "runtime"));
+        graph.addDependency(new ModuleDependency(c, a, "test"));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> new BuildLevelGenerator().generate(graph));
+        assertEquals("Dependency cycle detected: g:a:1 -> g:b:2 -> g:c:3 -> g:a:1", exception.getMessage());
+    }
+
+    @Test
+    void cycleFinderReturnsClosedPathAndNoCycleForAcyclicGraph() {
+        ModuleId a = new ModuleId("g", "a", "1");
+        ModuleId b = new ModuleId("g", "b", "1");
+        ModuleId c = new ModuleId("g", "c", "1");
+        Map<ModuleId, Set<ModuleId>> dependencies = new HashMap<>();
+        dependencies.put(a, Set.of(b));
+        dependencies.put(b, Set.of(c));
+        dependencies.put(c, Set.of(a));
+
+        assertEquals(List.of(a, b, c, a), new DependencyCycleFinder().findCycle(dependencies).orElseThrow());
+        dependencies.put(c, Set.of());
+        assertTrue(new DependencyCycleFinder().findCycle(dependencies).isEmpty());
     }
 
     private ModuleId testOnlyId() {
