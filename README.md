@@ -167,7 +167,9 @@ to dependency direction. It reports direct edges separately from deduplicated
 transitive reachability, includes compile and runtime scopes by default, and
 can optionally include test scope; provided, system, and other scopes are
 excluded. Reachability excludes the source module itself. Reported paths are
-simple directed paths, with at most 100 paths per source-target pair.
+simple directed paths, with at most 100 paths and 10,000 candidate paths
+explored per source-target pair; the deterministic shortest path is always
+reported.
 
 Version 0.0.1 only supports Mermaid module-level diagrams; generated diagrams
 do not yet render transitive paths. It does not render external libraries,
