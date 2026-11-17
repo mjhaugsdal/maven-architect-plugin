@@ -65,6 +65,8 @@ Options and corresponding command-line properties:
 | Option | Property | Default |
 | --- | --- | --- |
 | `diagramType` | `architecture.diagramType` | `build-levels` (or `full`) |
+| `groupBy` | `architecture.groupBy` | `none` |
+| `customGroups` | POM configuration only | no mappings |
 | `outputFile` | `architecture.outputFile` | `${project.build.directory}/architecture/architecture.mmd` |
 | `includeModuleHierarchy` | `architecture.includeModuleHierarchy` | `true` |
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
@@ -84,6 +86,54 @@ options only apply to the `full` diagram.
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
 does not require Mermaid CLI or a browser.
+
+## Module grouping
+
+Grouping is opt-in and only changes placement, not Maven module identity, node
+IDs, dependency selection, or edges. For example:
+
+```bash
+mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.groupBy=parent
+```
+
+Set `groupBy` to one of these strategies:
+
+| Strategy | Group label and membership |
+| --- | --- |
+| `none` | Default; preserves existing output without additional groups. |
+| `parent` | Immediate effective Maven parent's `groupId:artifactId:version`, even if the parent is outside the selected reactor. Modules without a parent stay ungrouped. |
+| `artifactId` | Exact artifact ID; modules with the same artifact ID share a group but remain distinct nodes. |
+| `groupId` | Exact effective Maven group ID. |
+| `directory` | First path component relative to the first selected reactor project's directory. The root itself and projects outside that directory stay ungrouped. |
+| `custom` | Explicit logical labels mapped to exact `groupId:artifactId` (all versions) or `groupId:artifactId:version` coordinates. No wildcards. |
+
+For custom grouping, add this to the plugin's `<configuration>`:
+
+```xml
+<groupBy>custom</groupBy>
+<customGroups>
+  <Backend>
+    <module>example:domain</module>
+    <module>example:application:1.0</module>
+  </Backend>
+  <Adapters>
+    <module>example:api</module>
+    <module>example:infrastructure</module>
+  </Adapters>
+</customGroups>
+```
+
+Custom group element names become labels. Assigning overlapping coordinates
+to different labels is rejected, including a version-specific mapping
+overlapping an all-versions mapping. Repeated assignments to the same label
+are allowed. Unknown coordinates do not create nodes; unassigned modules stay
+visible outside groups. Custom mappings are used only with `groupBy=custom`.
+
+Groups are sorted by label, nodes retain their deterministic IDs, and labels
+are escaped for Mermaid. All enabled cross-group edges are retained. For
+`build-levels`, groups are nested within each level, so a logical group spanning
+levels appears separately in each; level calculations and level-to-level edges
+are unchanged, including the existing omission of unused aggregator POMs.
 
 ## Build-level diagram
 

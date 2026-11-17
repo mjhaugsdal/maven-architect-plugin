@@ -2,11 +2,15 @@ package io.github.mjhaugsdal.architecture.mojo;
 
 import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
+import io.github.mjhaugsdal.architecture.generator.ModuleGrouping;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
+import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
@@ -40,6 +44,14 @@ public final class DiagramMojo extends AbstractMojo {
      */
     @Parameter(defaultValue = "build-levels", property = "architecture.diagramType")
     private String diagramType;
+
+    /** Optional display grouping: none, parent, artifactId, groupId, directory or custom. */
+    @Parameter(defaultValue = "none", property = "architecture.groupBy")
+    private String groupBy;
+
+    /** Logical group labels mapped to lists of groupId:artifactId[:version] coordinates. */
+    @Parameter
+    private Map<String, List<String>> customGroups;
 
     /** Include edges for aggregator modules and inherited parent POMs. */
     @Parameter(defaultValue = "true", property = "architecture.includeModuleHierarchy")
@@ -77,13 +89,12 @@ public final class DiagramMojo extends AbstractMojo {
         }
         try {
             ProjectScanner scanner = new ProjectScanner(artifactHandlerManager);
-            String diagram;
-            if (buildLevels) {
-                diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
-            } else {
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies);
-                diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
-            }
+            ArchitectureGraph graph = buildLevels ? scanner.scanBuildOrder(session.getProjects())
+                    : scanner.scan(session.getProjects(), includeTestDependencies);
+            Map<ModuleId, String> groups = new ModuleGrouping().project(graph, groupBy,
+                    project.getBasedir().toPath(), customGroups);
+            String diagram = buildLevels ? new BuildLevelGenerator().generate(graph, groups)
+                    : new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies, groups);
             new DiagramWriter().write(outputFile.toPath(), diagram);
             getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
         } catch (IllegalArgumentException | IOException exception) {
