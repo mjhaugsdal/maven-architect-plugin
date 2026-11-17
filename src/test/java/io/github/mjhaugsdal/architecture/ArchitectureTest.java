@@ -4,14 +4,19 @@ import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
+import io.github.mjhaugsdal.architecture.model.ArtifactIdentity;
+import io.github.mjhaugsdal.architecture.model.ExternalDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
 import io.github.mjhaugsdal.architecture.model.ModuleId;
 import io.github.mjhaugsdal.architecture.model.ModuleRelationship;
+import io.github.mjhaugsdal.architecture.model.ResolvedDependencyVersion;
+import io.github.mjhaugsdal.architecture.scanner.MavenDependencyResolver;
 import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.artifact.handler.DefaultArtifactHandler;
@@ -19,9 +24,16 @@ import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Model;
+import org.apache.maven.project.DependencyResolutionResult;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.ProjectDependenciesResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.eclipse.aether.graph.DefaultDependencyNode;
+import org.eclipse.aether.graph.DependencyNode;
+import org.eclipse.aether.DefaultRepositorySystemSession;
+import org.eclipse.aether.artifact.ArtifactTypeRegistry;
+import org.eclipse.aether.artifact.DefaultArtifactType;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -98,6 +110,7 @@ class ArchitectureTest {
         Dependency provided = dependency("target", "1", "provided");
         source.getModel().addDependency(provided);
         Dependency classified = dependency("target", "1", "compile");
+        classified.setType("war");
         classified.setClassifier("tests");
         source.getModel().addDependency(classified);
         Dependency wrongVersion = dependency("target", "2", "compile");
@@ -125,14 +138,134 @@ class ArchitectureTest {
         MavenProject nonmatchingTarget = project("target", "2.1", "jar", temp.resolve("target-2.1"));
         ModuleId sourceId = new ModuleId("example", "source", "1");
         ModuleId matchingTargetId = new ModuleId("example", "target", "1.1");
-        assertTrue(scanner().scan(List.of(source, matchingTarget, nonmatchingTarget), true)
-                .dependencies().contains(new ModuleDependency(sourceId, matchingTargetId, "compile")));
+        ArchitectureGraph graph = scanner().scan(List.of(source, matchingTarget, nonmatchingTarget), true);
+        assertTrue(graph.dependencies().stream().anyMatch(edge -> edge.from().equals(sourceId)
+                        && edge.to().equals(matchingTargetId)
+                        && edge.requestedVersion().equals("[1.0,2.0)")));
+        assertTrue(new MermaidGenerator().generate(graph, false, true)
+                .contains("requested #91;1.0,2.0)"));
 
         source.getModel().getDependencies().clear();
         source.getModel().addDependency(dependency("target", "[1.0,3.0)", "compile"));
         MavenProject secondMatchingTarget = project("target", "1.2", "jar", temp.resolve("target-1.2"));
         assertTrue(scanner().scan(List.of(source, matchingTarget, secondMatchingTarget), true)
                 .dependencies().isEmpty());
+    }
+
+    @Test
+    void scannerPreservesManagedVersionsAndArtifactIdentity() throws Exception {
+        MavenProject source = project("source", "1", "jar", temp);
+        MavenProject target = project("target", "1.1", "jar", temp.resolve("target"));
+        Dependency managed = dependency("target", "1.1", "compile");
+        source.getModel().addDependency(managed);
+        Dependency classified = dependency("target", "1.1", "compile");
+        classified.setType("test-jar");
+        source.getModel().addDependency(classified);
+
+        Model original = new Model();
+        Dependency unmanagedVersion = dependency("target", null, "compile");
+        original.addDependency(unmanagedVersion);
+        source.setOriginalModel(original);
+
+        Dependency firstExternal = dependency("shared", "1.0", "compile");
+        Dependency secondExternal = dependency("shared", "2.0", "compile");
+        Dependency classifierExternal = dependency("shared", "2.0", "compile");
+        classifierExternal.setClassifier("tests");
+        Dependency typeExternal = dependency("shared", "2.0", "compile");
+        typeExternal.setType("war");
+        source.getModel().addDependency(firstExternal);
+        source.getModel().addDependency(secondExternal);
+        source.getModel().addDependency(classifierExternal);
+        source.getModel().addDependency(typeExternal);
+
+        ArtifactIdentity managedIdentity = new ArtifactIdentity("example", "target", "jar", "jar", "");
+        ModuleId sourceId = new ModuleId("example", "source", "1");
+        Map<ModuleId, List<ResolvedDependencyVersion>> resolution = Map.of(sourceId, List.of(
+                new ResolvedDependencyVersion(managedIdentity, "compile", "1.1", "1.1", false, false, true)));
+        ArchitectureGraph graph = new ProjectScanner(scannerArtifactHandlerManager(), testArtifactTypeRegistry())
+                .scan(List.of(source, target), false, true, resolution);
+
+        assertEquals(2, graph.dependencies().size());
+        assertTrue(graph.dependencies().stream().anyMatch(edge -> edge.managed()
+                && edge.requestedVersion().equals("1.1") && edge.artifact().type().equals("jar")));
+        assertTrue(graph.dependencies().stream().anyMatch(edge -> edge.artifact().type().equals("test-jar")
+                && edge.artifact().classifier().equals("tests")));
+        assertEquals(4, graph.externalDependencies().size());
+        assertTrue(new MermaidGenerator().generate(graph, false, true)
+                .contains("requested 1.1; managed"));
+    }
+
+    @Test
+    void resolverCapturesMediatedVersionAndGeneratorDoesNotAssumeMissingResolutionConverged() {
+        MavenProject source = project("source", "1", "jar", temp);
+        source.getModel().addDependency(dependency("branch", "1.0", "compile"));
+        DefaultDependencyNode root = new DefaultDependencyNode(
+                new org.eclipse.aether.artifact.DefaultArtifact("example", "source", "", "pom", "1"));
+        DefaultDependencyNode branch = new DefaultDependencyNode(new org.eclipse.aether.graph.Dependency(
+                new org.eclipse.aether.artifact.DefaultArtifact("example", "branch", "", "jar", "1.0"), "compile"));
+        DefaultDependencyNode losing = new DefaultDependencyNode(new org.eclipse.aether.graph.Dependency(
+                new org.eclipse.aether.artifact.DefaultArtifact("example", "shared", "", "jar", "2.0"), "compile"));
+        DefaultDependencyNode winner = new DefaultDependencyNode(new org.eclipse.aether.graph.Dependency(
+                new org.eclipse.aether.artifact.DefaultArtifact("example", "shared", "", "jar", "1.0"), "compile"));
+        losing.setData("conflict.winner", winner);
+        branch.setChildren(List.of(losing));
+        root.setChildren(List.of(branch));
+        DependencyResolutionResult result = new DependencyResolutionResult() {
+            @Override
+            public DependencyNode getDependencyGraph() {
+                return root;
+            }
+
+            @Override
+            public List<org.eclipse.aether.graph.Dependency> getDependencies() {
+                return List.of();
+            }
+
+            @Override
+            public List<org.eclipse.aether.graph.Dependency> getResolvedDependencies() {
+                return List.of();
+            }
+
+            @Override
+            public List<org.eclipse.aether.graph.Dependency> getUnresolvedDependencies() {
+                return List.of();
+            }
+
+            @Override
+            public List<Exception> getCollectionErrors() {
+                return List.of();
+            }
+
+            @Override
+            public List<Exception> getResolutionErrors(org.eclipse.aether.graph.Dependency dependency) {
+                return List.of();
+            }
+        };
+        ProjectDependenciesResolver fakeResolver = request -> result;
+        var versions = new MavenDependencyResolver(fakeResolver, scannerArtifactHandlerManager())
+                .resolve(List.of(source), new DefaultRepositorySystemSession(), ignored -> { });
+        ResolvedDependencyVersion mediated = versions.get(new ModuleId("example", "source", "1")).stream()
+                .filter(version -> !version.direct())
+                .findFirst().orElseThrow();
+        assertEquals("2.0", mediated.requestedVersion());
+        assertEquals("1.0", mediated.selectedVersion());
+        assertTrue(mediated.conflict());
+
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId sourceId = new ModuleId("example", "source", "1");
+        graph.addModule(new ArchitectureModule(sourceId, "jar", "source", "", null));
+        graph.addExternalDependency(new ExternalDependency(sourceId,
+                new ArtifactIdentity("example", "shared", "jar", "jar", ""),
+                "compile", "2.0", "1.0", false, true));
+        String unavailable = new MermaidGenerator().generate(graph, false, true, true);
+        assertTrue(unavailable.contains("requested 2.0; selected 1.0; CONFLICT"));
+
+        graph.addExternalDependency(new ExternalDependency(sourceId,
+                new ArtifactIdentity("example", "unresolved", "jar", "jar", ""),
+                "compile", "1.0", null, false, false));
+        String withMissingData = new MermaidGenerator().generate(graph, false, true, true);
+        assertTrue(withMissingData.contains("requested 1.0; selected unavailable"));
+        assertFalse(withMissingData.contains("requested 1.0; selected 1.0"));
     }
 
     @Test
@@ -211,8 +344,8 @@ class ArchitectureTest {
         assertEquals(diagram, new MermaidGenerator().generate(graph, true, true));
         assertTrue(diagram.contains("n0[\"Name #34;#60;x#62;#34; (a:module:1)\"]"));
         assertTrue(diagram.contains("n1[\"Name #34;#60;x#62;#34; (b:module:1)\"]"));
-        assertEquals(1, diagram.split("n0 -.-> n1", -1).length - 1);
-        assertTrue(diagram.contains("n1 -.-> n0"));
+        assertEquals(1, diagram.split("n0 -.->\\|requested 1\\| n1", -1).length - 1);
+        assertTrue(diagram.contains("n1 -.->|requested 1| n0"));
     }
 
     @Test
@@ -233,16 +366,30 @@ class ArchitectureTest {
     }
 
     private ProjectScanner scanner() {
-        return new ProjectScanner(new ArtifactHandlerManager() {
+        return new ProjectScanner(scannerArtifactHandlerManager());
+    }
+
+    private ArtifactTypeRegistry testArtifactTypeRegistry() {
+        return type -> "test-jar".equals(type)
+                ? new DefaultArtifactType("test-jar", "jar", "tests", Map.of())
+                : null;
+    }
+
+    private ArtifactHandlerManager scannerArtifactHandlerManager() {
+        return new ArtifactHandlerManager() {
             @Override
             public ArtifactHandler getArtifactHandler(String type) {
-                return new DefaultArtifactHandler(type);
+                DefaultArtifactHandler handler = new DefaultArtifactHandler(type);
+                if ("test-jar".equals(type)) {
+                    handler.setExtension("jar");
+                }
+                return handler;
             }
 
             @Override
             public void addHandlers(java.util.Map<String, ArtifactHandler> handlers) {
             }
-        });
+        };
     }
 
     private MavenProject project(String artifact, String version, String packaging, Path directory) {
