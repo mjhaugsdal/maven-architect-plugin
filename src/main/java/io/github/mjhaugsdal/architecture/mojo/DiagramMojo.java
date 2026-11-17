@@ -36,7 +36,7 @@ public final class DiagramMojo extends AbstractMojo {
 
     /**
      * {@code build-levels} (default) groups modules into levels that can be built in parallel;
-     * {@code full} renders aggregation, inheritance and dependency edges.
+     * {@code full} renders aggregation, inheritance and dependency edges; {@code dependency} renders dependencies only.
      */
     @Parameter(defaultValue = "build-levels", property = "architecture.diagramType")
     private String diagramType;
@@ -53,7 +53,7 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeTestDependencies")
     private boolean includeTestDependencies;
 
-    /** Reserved for a later release; external dependency diagrams are not yet supported. */
+    /** Include declared dependencies on artifacts outside the selected reactor. */
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
 
@@ -65,12 +65,11 @@ public final class DiagramMojo extends AbstractMojo {
         if (!project.equals(session.getProjects().get(0))) {
             return;
         }
-        if (includeExternalDependencies) {
-            throw new MojoExecutionException("includeExternalDependencies is not supported in version 0.0.1");
-        }
         boolean buildLevels = "build-levels".equals(diagramType);
-        if (!buildLevels && !"full".equals(diagramType)) {
-            throw new MojoExecutionException("diagramType must be 'build-levels' or 'full', not '" + diagramType + "'");
+        boolean dependencyOnly = "dependency".equals(diagramType);
+        if (!buildLevels && !dependencyOnly && !"full".equals(diagramType)) {
+            throw new MojoExecutionException(
+                    "diagramType must be 'build-levels', 'full' or 'dependency', not '" + diagramType + "'");
         }
         if (outputFile == null || outputFile.isDirectory()) {
             throw new MojoExecutionException("outputFile must point to a writable file, not a directory");
@@ -81,8 +80,10 @@ public final class DiagramMojo extends AbstractMojo {
             if (buildLevels) {
                 diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
             } else {
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies);
-                diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
+                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies,
+                        includeExternalDependencies);
+                diagram = new MermaidGenerator().generate(graph, !dependencyOnly && includeModuleHierarchy,
+                        dependencyOnly || includeDependencies);
             }
             new DiagramWriter().write(outputFile.toPath(), diagram);
             getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());

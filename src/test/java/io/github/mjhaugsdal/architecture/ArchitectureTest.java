@@ -56,6 +56,7 @@ class ArchitectureTest {
         child.getModel().addDependency(dependency("target", "1", "runtime"));
         child.getModel().addDependency(dependency("test-only", "1", "test"));
         child.getModel().addDependency(dependency("external", "1", "compile"));
+        child.getModel().addDependency(dependency("ranged", "[1.0,2.0)", "runtime"));
         MavenProject target = project("target", "1", "jar", temp.resolve("target"));
         target.getModel().addDependency(dependency("child", "1", "compile"));
         MavenProject testOnly = project("test-only", "1", "jar", temp.resolve("test-only"));
@@ -70,6 +71,34 @@ class ArchitectureTest {
         assertEquals(2, defaultGraph.dependencies().size());
         assertEquals(3, scanner().scan(List.of(root, child, target, testOnly), true).dependencies().size());
         assertTrue(defaultGraph.modules().stream().anyMatch(module -> module.id().equals(testOnlyId())));
+
+        ArchitectureGraph withExternal = scanner().scan(List.of(root, child, target, testOnly), false, true);
+        assertEquals(4, withExternal.dependencies().size());
+        assertTrue(withExternal.externalModules().contains(new ModuleId("example", "external", "1")));
+        assertTrue(withExternal.externalModules().contains(new ModuleId("example", "ranged", "[1.0,2.0)")));
+        assertFalse(withExternal.dependencies().stream()
+                .anyMatch(dependency -> dependency.scope().equals("test")));
+    }
+
+    @Test
+    void dependencyProjectionOmitsHierarchyAndIncludesAllReactorModules() {
+        MavenProject root = project("parent", "1", "pom", temp);
+        root.getModel().addModule("child");
+        MavenProject child = project("child", "1", "jar", temp.resolve("child"));
+        child.setParent(root);
+        child.getModel().addDependency(dependency("external", "1", "compile"));
+        MavenProject isolated = project("isolated", "1", "jar", temp.resolve("isolated"));
+        ArchitectureGraph graph = scanner().scan(List.of(root, child, isolated), false, true);
+
+        String diagram = new MermaidGenerator().generate(graph, false, true);
+
+        assertTrue(diagram.contains("[\"parent\"]"));
+        assertTrue(diagram.contains("[\"child\"]"));
+        assertTrue(diagram.contains("[\"isolated\"]"));
+        assertTrue(diagram.contains("[\"example:external:1\"]"));
+        assertTrue(diagram.contains("n0 -.-> n3"));
+        assertFalse(diagram.contains(" --> "));
+        assertFalse(diagram.contains("inherits"));
     }
 
     @Test

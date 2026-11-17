@@ -12,8 +12,12 @@ public final class ArchitectureGraph {
     private final Map<ModuleId, ArchitectureModule> modules = new TreeMap<>();
     private final Set<ModuleRelationship> relationships = new TreeSet<>();
     private final Set<ModuleDependency> dependencies = new TreeSet<>();
+    private final Set<ModuleId> externalModules = new TreeSet<>();
 
     public void addModule(ArchitectureModule module) {
+        if (externalModules.contains(module.id())) {
+            throw new IllegalArgumentException("Project is already registered as an external dependency: " + module.id());
+        }
         if (modules.putIfAbsent(module.id(), module) != null) {
             throw new IllegalArgumentException("Duplicate reactor project: " + module.id());
         }
@@ -26,6 +30,17 @@ public final class ArchitectureGraph {
 
     public void addDependency(ModuleDependency dependency) {
         requireModules(dependency.from(), dependency.to());
+        dependencies.add(dependency);
+    }
+
+    public void addExternalDependency(ModuleDependency dependency) {
+        if (!modules.containsKey(dependency.from())) {
+            throw new IllegalArgumentException("Dependency refers to a project outside the reactor");
+        }
+        if (modules.containsKey(dependency.to())) {
+            throw new IllegalArgumentException("External dependency is already a reactor project: " + dependency.to());
+        }
+        externalModules.add(dependency.to());
         dependencies.add(dependency);
     }
 
@@ -45,5 +60,9 @@ public final class ArchitectureGraph {
 
     public Set<ModuleDependency> dependencies() {
         return Collections.unmodifiableSet(dependencies);
+    }
+
+    public Set<ModuleId> externalModules() {
+        return Collections.unmodifiableSet(externalModules);
     }
 }

@@ -53,8 +53,39 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
 
+runGoal(["-Darchitecture.diagramType=dependency", "-Darchitecture.outputFile=target/architecture/dependency.mmd"])
+File dependencyOutput = new File(basedir, "target/architecture/dependency.mmd")
+String dependencyDiagram = dependencyOutput.getText("UTF-8")
+def dependencyNodes = [:]
+dependencyDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> dependencyNodes[label] = id }
+assert dependencyNodes.keySet() == nodes.keySet()
+assert !dependencyDiagram.contains(" --> ")
+assert !dependencyDiagram.contains("inherits")
+["domain:common", "infrastructure:domain", "infrastructure:common", "api:domain",
+ "application:api", "application:infrastructure"].each { pair ->
+    def (from, to) = pair.split(":")
+    assert dependencyDiagram.contains("${dependencyNodes[from]} -.-> ${dependencyNodes[to]}")
+}
+assert !dependencyDiagram.contains("external")
+
+runGoal(["-Darchitecture.diagramType=dependency", "-Darchitecture.includeExternalDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/dependency-with-external.mmd"])
+File externalOutput = new File(basedir, "target/architecture/dependency-with-external.mmd")
+String externalDiagram = externalOutput.getText("UTF-8")
+def externalNodes = [:]
+externalDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> externalNodes[label] = id }
+assert externalNodes.containsKey("org.unrelated:external:1.0")
+assert externalDiagram.contains("${externalNodes['api']} -.-> ${externalNodes['org.unrelated:external:1.0']}")
+assert !externalDiagram.contains(" --> ")
+
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
 assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+
+runGoal(["-Darchitecture.diagramType=dependency", "-Darchitecture.includeTestDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/dependency-with-tests.mmd"])
+File dependencyTestOutput = new File(basedir, "target/architecture/dependency-with-tests.mmd")
+assert dependencyTestOutput.getText("UTF-8").contains(
+        "${dependencyNodes['application']} -.-> ${dependencyNodes['common']}")
