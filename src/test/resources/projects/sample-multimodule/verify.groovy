@@ -45,10 +45,10 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
     assert diagram.contains("${nodes['sample-multimodule']} --> ${nodes[child]}")
     assert diagram.contains("${nodes['sample-multimodule']} -->|inherits| ${nodes[child]}")
 }
-["domain:common", "infrastructure:domain", "infrastructure:common", "api:domain",
- "application:api", "application:infrastructure"].each { pair ->
-    def (from, to) = pair.split(":")
-    assert diagram.contains("${nodes[from]} -.->|compile| ${nodes[to]}")
+["domain:common:compile", "infrastructure:domain:compile", "infrastructure:common:runtime",
+ "api:domain:compile", "application:api:compile", "application:infrastructure:compile"].each { pair ->
+    def (from, to, scope) = pair.split(":")
+    assert diagram.contains("${nodes[from]} -.->|${scope}| ${nodes[to]}")
 }
 assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
 assert !diagram.contains("external")
