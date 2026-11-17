@@ -81,6 +81,31 @@ mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeT
 The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
 options only apply to the `full` diagram.
 
+## Circular dependency report
+
+Run the `cycles` goal to report each cyclic strongly connected component, its
+participating module coordinates, and a representative closed dependency path:
+
+```bash
+mvn io.github.mjhaugsdal:maven-architecture-plugin:0.0.1-SNAPSHOT:cycles
+```
+
+By default, the goal writes only to the Maven log. To also write a Mermaid
+diagram containing only cyclic components:
+
+```bash
+mvn architecture:cycles -Darchitecture.includeCycleDiagram=true \
+  -Darchitecture.cycleDiagramFile=target/circular-dependencies.mmd
+```
+
+The diagram option defaults to `false`; its destination defaults to
+`${project.build.directory}/architecture/circular-dependencies.mmd`. Cycle
+analysis uses all reactor dependencies, including every scope and classifier,
+to match Maven build ordering. Build-level diagram errors use the same cycle
+diagnostic as this report. Maven may reject an actual cyclic reactor before it
+can run a goal; the graph analyzer itself is Maven-independent and can analyze
+such graph fixtures directly.
+
 ## JSON graph export
 
 Export the complete declared architecture graph independently of the Mermaid
@@ -153,7 +178,8 @@ scope counts (including `test` and `provided`, and classified artifacts such as
 and aggregation relationships are not drawn and do not affect levels.
 Aggregator POMs (projects listing `<modules>`) are omitted unless another module
 depends on them or they declare reactor dependencies themselves. External
-dependencies are ignored. A dependency cycle fails the goal.
+dependencies are ignored. A dependency cycle fails the goal with the same
+component and path diagnostics used by the circular dependency report.
 
 ## Full diagram semantics
 
@@ -193,10 +219,11 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-Version 0.0.1 supports Mermaid module-level diagrams and JSON export of direct
-declared dependencies. It does not resolve transitive dependencies, inspect
-source code, or enforce architecture rules. See the [roadmap](ROADMAP.md) for
-planned visualization, analysis, and validation work.
+Version 0.0.1 supports Mermaid module-level diagrams, JSON export of direct
+declared dependencies, and direct dependency cycle reports. It does not resolve
+transitive dependencies, inspect source code, or enforce architecture rules.
+See the [roadmap](ROADMAP.md) for planned visualization, analysis, and
+validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish

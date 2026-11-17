@@ -1,6 +1,11 @@
 package io.github.mjhaugsdal.architecture;
 
+import io.github.mjhaugsdal.architecture.analyzer.CycleAnalysis;
+import io.github.mjhaugsdal.architecture.analyzer.DependencyCycleAnalyzer;
+import io.github.mjhaugsdal.architecture.analyzer.DependencyPathFinder;
 import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
+import io.github.mjhaugsdal.architecture.generator.CircularDependencyDiagramGenerator;
+import io.github.mjhaugsdal.architecture.generator.CircularDependencyReportGenerator;
 import io.github.mjhaugsdal.architecture.generator.JsonGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
@@ -262,6 +267,82 @@ class ArchitectureTest {
         graph.addDependency(new ModuleDependency(b, a, "test"));
         assertThrows(IllegalArgumentException.class, () -> new BuildLevelGenerator().generate(graph));
         assertEquals("flowchart TD\n", new BuildLevelGenerator().generate(new ArchitectureGraph()));
+    }
+
+    @Test
+    void cycleReportFindsIndependentCyclesAndSelfLoopsButOmitsAcyclicModules() {
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId a = module(graph, "a");
+        ModuleId b = module(graph, "b");
+        ModuleId c = module(graph, "c");
+        ModuleId d = module(graph, "d");
+        ModuleId e = module(graph, "e");
+        ModuleId f = module(graph, "f");
+        ModuleId g = module(graph, "g");
+        ModuleId h = module(graph, "h");
+        graph.addDependency(new ModuleDependency(a, b, "compile"));
+        graph.addDependency(new ModuleDependency(b, a, "compile"));
+        graph.addDependency(new ModuleDependency(c, d, "compile"));
+        graph.addDependency(new ModuleDependency(d, e, "compile"));
+        graph.addDependency(new ModuleDependency(e, c, "compile"));
+        graph.addDependency(new ModuleDependency(f, f, "compile"));
+        graph.addDependency(new ModuleDependency(g, h, "compile"));
+
+        DependencyCycleAnalyzer analyzer = new DependencyCycleAnalyzer();
+        CycleAnalysis analysis = analyzer.analyze(graph);
+        String report = new CircularDependencyReportGenerator().generate(analysis);
+        String diagram = new CircularDependencyDiagramGenerator().generate(graph, analysis);
+
+        assertEquals(3, analysis.cycles().size());
+        assertEquals(List.of(a, b), analysis.cycles().get(0).modules());
+        assertEquals(List.of(c, d, e), analysis.cycles().get(1).modules());
+        assertEquals(List.of(f), analysis.cycles().get(2).modules());
+        assertEquals(List.of(f, f), analysis.cycles().get(2).path());
+        for (var cycle : analysis.cycles()) {
+            assertEquals(cycle.path().get(0), cycle.path().get(cycle.path().size() - 1));
+            assertTrue(cycle.path().containsAll(cycle.modules()));
+            for (int index = 1; index < cycle.path().size(); index++) {
+                ModuleId from = cycle.path().get(index - 1);
+                ModuleId to = cycle.path().get(index);
+                assertTrue(graph.dependencies().stream()
+                        .anyMatch(dependency -> dependency.from().equals(from) && dependency.to().equals(to)));
+            }
+        }
+        assertTrue(report.contains("g:a:1, g:b:1"));
+        assertTrue(report.contains("g:c:1, g:d:1, g:e:1"));
+        assertTrue(report.contains("g:f:1"));
+        assertFalse(report.contains("g:g:1"));
+        assertFalse(report.contains("g:h:1"));
+        assertTrue(diagram.contains("[\"a\"]"));
+        assertTrue(diagram.contains("[\"e\"]"));
+        assertFalse(diagram.contains("[\"g\"]"));
+        assertFalse(diagram.contains("[\"h\"]"));
+        assertTrue(diagram.contains("n5 -.-> n5"));
+        assertEquals(diagram, new CircularDependencyDiagramGenerator().generate(graph, analysis));
+        assertEquals(analysis.diagnosticMessage(),
+                assertThrows(IllegalArgumentException.class, () -> new BuildLevelGenerator().generate(graph))
+                        .getMessage());
+        assertEquals(List.of(a, b), new DependencyPathFinder().findPath(graph, a, b).orElseThrow());
+    }
+
+    @Test
+    void cycleReportHandlesAnAcyclicGraph() {
+        ArchitectureGraph graph = new ArchitectureGraph();
+        ModuleId a = module(graph, "a");
+        ModuleId b = module(graph, "b");
+        graph.addDependency(new ModuleDependency(a, b, "compile"));
+        CycleAnalysis analysis = new DependencyCycleAnalyzer().analyze(graph);
+        assertFalse(analysis.hasCycles());
+        assertEquals("No circular dependencies found.\n",
+                new CircularDependencyReportGenerator().generate(analysis));
+        assertEquals("flowchart TD\n", new CircularDependencyDiagramGenerator().generate(graph, analysis));
+        assertTrue(new DependencyPathFinder().findPath(graph, b, a).isEmpty());
+    }
+
+    private ModuleId module(ArchitectureGraph graph, String artifact) {
+        ModuleId id = new ModuleId("g", artifact, "1");
+        graph.addModule(new ArchitectureModule(id, "jar", null, "", null));
+        return id;
     }
 
     private ModuleId testOnlyId() {
