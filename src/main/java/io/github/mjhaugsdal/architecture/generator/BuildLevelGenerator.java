@@ -1,6 +1,7 @@
 package io.github.mjhaugsdal.architecture.generator;
 
-import io.github.mjhaugsdal.architecture.analyzer.DependencyCycleFinder;
+import io.github.mjhaugsdal.architecture.analyzer.CycleAnalysis;
+import io.github.mjhaugsdal.architecture.analyzer.DependencyCycleAnalyzer;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
 import io.github.mjhaugsdal.architecture.model.ArchitectureModule;
 import io.github.mjhaugsdal.architecture.model.ModuleDependency;
@@ -21,6 +22,10 @@ import java.util.TreeMap;
  */
 public final class BuildLevelGenerator {
     public String generate(ArchitectureGraph graph) {
+        CycleAnalysis cycleAnalysis = new DependencyCycleAnalyzer().analyze(graph);
+        if (cycleAnalysis.hasCycles()) {
+            throw new IllegalArgumentException(cycleAnalysis.diagnosticMessage());
+        }
         Map<ModuleId, ArchitectureModule> modules = new LinkedHashMap<>();
         Set<ModuleId> connected = new HashSet<>();
         for (ModuleDependency dependency : graph.dependencies()) {
@@ -51,13 +56,6 @@ public final class BuildLevelGenerator {
                 upstream.get(dependency.from()).add(dependency.to());
             }
         }
-
-        new DependencyCycleFinder().findCycle(upstream).ifPresent(cycle -> {
-            String path = cycle.stream()
-                    .map(id -> id.groupId() + ":" + id.artifactId() + ":" + id.version())
-                    .collect(java.util.stream.Collectors.joining(" -> "));
-            throw new IllegalArgumentException("Dependency cycle detected: " + path);
-        });
 
         Map<ModuleId, Integer> levels = new HashMap<>();
         for (ModuleId id : modules.keySet()) {
