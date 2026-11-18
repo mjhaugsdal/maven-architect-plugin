@@ -1,11 +1,21 @@
 File repository = new File(basedir.parentFile.parentFile, "it-repository")
 def mavenExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows") ? "mvn.cmd" : "mvn"
-def runGoal = { List<String> properties ->
+def runGoal = { List<String> properties, String goal = "diagram" ->
+    def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}"] + properties +
+            ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:${goal}"]
+    def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
+    String log = process.inputStream.getText("UTF-8")
+    assert process.waitFor() == 0 : log
+    log
+}
+
+def failGoal = { List<String> properties ->
     def command = [mavenExecutable, "-B", "-o", "-Dmaven.repo.local=${repository.absolutePath}"] + properties +
             ["io.github.mjhaugsdal:maven-architecture-plugin:${pluginVersion}:diagram"]
     def process = new ProcessBuilder(command.collect { it.toString() }).directory(basedir).redirectErrorStream(true).start()
     String log = process.inputStream.getText("UTF-8")
-    assert process.waitFor() == 0 : log
+    assert process.waitFor() != 0 : log
+    log
 }
 
 File levelsOutput = new File(basedir, "target/architecture/architecture.mmd")
@@ -32,6 +42,10 @@ assert levelsOutput.getText("UTF-8") == """flowchart TD
     L1 --> L2
     L2 --> L3
 """
+String defaultLog = runGoal([])
+assert defaultLog.contains("Mermaid architecture diagram:")
+assert !defaultLog.contains("Architecture diagram summary:")
+assert !defaultLog.contains("filters:")
 
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.outputFile=target/architecture/full.mmd"])
 File output = new File(basedir, "target/architecture/full.mmd")
@@ -48,13 +62,67 @@ assert nodes.keySet() == ["sample-multimodule", "common", "domain", "infrastruct
 ["domain:common", "infrastructure:domain", "infrastructure:common", "api:domain",
  "application:api", "application:infrastructure"].each { pair ->
     def (from, to) = pair.split(":")
-    assert diagram.contains("${nodes[from]} -.-> ${nodes[to]}")
+    assert diagram.contains("${nodes[from]} -.->|requested 1.0| ${nodes[to]}")
 }
-assert !diagram.contains("${nodes['application']} -.-> ${nodes['common']}")
+assert !diagram.contains("${nodes['application']} -.->|requested 1.0| ${nodes['common']}")
 assert !diagram.contains("external")
+assert !diagram.contains("org.unrelated:external:1.0")
+
+runGoal(["-Darchitecture.includeExternalDependencies=true",
+        "-Darchitecture.outputFile=target/architecture/external-build-levels.mmd"])
+assert new File(basedir, "target/architecture/external-build-levels.mmd").getText("UTF-8") ==
+        levelsOutput.getText("UTF-8")
+
+runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeExternalDependencies=true",
+         "-Darchitecture.outputFile=target/architecture/with-external.mmd"])
+File externalOutput = new File(basedir, "target/architecture/with-external.mmd")
+String externalDiagram = externalOutput.getText("UTF-8")
+def externalNodes = [:]
+externalDiagram.eachMatch(/(?m)^\s*(n\d+)\["([^"]+)"\]$/) { match, id, label -> externalNodes[label] = id }
+assert externalNodes["org.unrelated:external:1.0"]
+assert externalDiagram.contains(
+        "${nodes['api']} -.->|requested 1.0| ${externalNodes['org.unrelated:external:1.0']}")
+
+runGoal(["-Darchitecture.jsonOutputFile=target/architecture/complete.json"], "json")
+File jsonOutput = new File(basedir, "target/architecture/complete.json")
+assert jsonOutput.isFile()
+def graph = new groovy.json.JsonSlurper().parse(jsonOutput)
+assert graph.schemaVersion == 1
+assert graph.nodes.count { it.kind == "module" } == 6
+assert graph.nodes.any { it.kind == "external" && it.groupId == "org.unrelated" && it.artifactId == "external" }
+assert graph.nodes.every { !it.containsKey("directory") }
+def moduleIds = graph.nodes.findAll { it.kind == "module" }.collectEntries {
+    [(it.artifactId): it.id]
+}
+assert graph.edges.any { it.kind == "aggregation" && it.from == moduleIds["sample-multimodule"] }
+assert graph.edges.any { it.kind == "inheritance" && it.to == moduleIds["application"] }
+assert graph.edges.any {
+    it.kind == "dependency" && it.from == moduleIds["application"] && it.to == moduleIds["common"] &&
+            it.scope == "test" && it.version == "1.0" && it.type == "test-jar" && it.classifier == "tests"
+}
+assert graph.edges.any { it.kind == "dependency" && it.scope == "runtime" }
 
 runGoal(["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
          "-Darchitecture.outputFile=target/architecture/with-tests.mmd"])
 File testOutput = new File(basedir, "target/architecture/with-tests.mmd")
 assert testOutput.isFile()
-assert testOutput.getText("UTF-8").contains("${nodes['application']} -.-> ${nodes['common']}")
+assert testOutput.getText("UTF-8").contains("${nodes['application']} -.->|requested 1.0| ${nodes['common']}")
+
+List<String> verboseOptions = ["-Darchitecture.diagramType=full", "-Darchitecture.includeTestDependencies=true",
+        "-Darchitecture.verbose=true", "-Darchitecture.outputFile=target/architecture/verbose.mmd"]
+String verboseLog = runGoal(verboseOptions)
+assert verboseLog.contains("Architecture diagram summary: 6 selected projects, 6 rendered projects,")
+assert verboseLog.contains("hierarchy=included, dependencies=compile/runtime/test")
+assert verboseLog.contains("output: ${new File(basedir, 'target/architecture/verbose.mmd').absolutePath} (written)")
+String unchangedLog = runGoal(verboseOptions)
+assert unchangedLog.contains("output: ${new File(basedir, 'target/architecture/verbose.mmd').absolutePath} (unchanged)")
+
+String buildLevelsLog = runGoal(["-Darchitecture.diagramType=build-levels", "-Darchitecture.verbose=true",
+        "-Darchitecture.outputFile=target/architecture/verbose-build-levels.mmd"])
+assert buildLevelsLog.contains("6 selected projects, 5 rendered projects, 3 edges")
+assert buildLevelsLog.contains("dependencies=all scopes and types, standalone aggregators=omitted")
+
+String invalidTypeLog = failGoal(["-Darchitecture.diagramType=unknown"])
+assert invalidTypeLog.contains("valid values are 'build-levels' and 'full'")
+String conflictingOptionsLog = failGoal(["-Darchitecture.includeTestDependencies=true"])
+assert conflictingOptionsLog.contains("only apply to diagramType='full'")

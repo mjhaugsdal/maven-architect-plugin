@@ -1,0 +1,8 @@
+File output = new File(basedir, "target/architecture/architecture.mmd")
+assert output.isFile()
+String diagram = output.getText("UTF-8")
+assert diagram.contains("requested 1.0; selected 1.0")
+assert diagram.contains("requested 2.0; selected 1.0; CONFLICT")
+assert diagram.contains("test-jar#91;jar#93;:tests, requested 1.0; selected 1.0")
+assert diagram.contains("classifier=tests")
+assert diagram.contains("type=pom")
