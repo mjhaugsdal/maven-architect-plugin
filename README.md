@@ -273,9 +273,17 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-The default diagram does not resolve transitive dependencies. Resolver-backed
-version reporting is opt-in and follows Maven's effective dependency graph. The
-plugin does not inspect source code or enforce architecture rules. See the
+`analyzer/` traverses direct reactor dependency edges in the declaring-module
+to dependency direction. It reports direct edges separately from deduplicated
+transitive reachability, includes compile and runtime scopes by default, and
+can optionally include test scope; provided, system, and other scopes are
+excluded. Reachability excludes the source module itself. Reported paths are
+simple directed paths, with at most 100 paths and 10,000 candidate paths
+explored per source-target pair; the deterministic shortest path is always
+reported. The default diagram does not render or resolve transitive paths.
+Resolver-backed version reporting is opt-in and follows Maven's effective
+dependency graph. The plugin does not inspect source code or enforce
+architecture rules. See the
 [roadmap](ROADMAP.md) for planned visualization, analysis, and validation work.
 
 To prepare a 0.0.1 release, replace the development
