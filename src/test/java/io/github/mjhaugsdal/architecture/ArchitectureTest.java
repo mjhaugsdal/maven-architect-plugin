@@ -439,6 +439,31 @@ class ArchitectureTest {
     }
 
     @Test
+    void shuffledGraphInputProducesStableDiagramAndBuildLevels() {
+        ModuleId alpha = new ModuleId("g", "alpha", "1");
+        ModuleId beta = new ModuleId("g", "beta", "1");
+        ModuleId gamma = new ModuleId("g", "gamma", "1");
+        ArchitectureGraph first = new ArchitectureGraph();
+        first.addModule(new ArchitectureModule(alpha, "jar", null, "", null));
+        first.addModule(new ArchitectureModule(beta, "jar", null, "", null));
+        first.addModule(new ArchitectureModule(gamma, "jar", null, "", null));
+        first.addDependency(new ModuleDependency(beta, alpha, "compile"));
+        first.addDependency(new ModuleDependency(gamma, alpha, "runtime"));
+
+        ArchitectureGraph shuffled = new ArchitectureGraph();
+        shuffled.addModule(new ArchitectureModule(gamma, "jar", null, "", null));
+        shuffled.addModule(new ArchitectureModule(beta, "jar", null, "", null));
+        shuffled.addModule(new ArchitectureModule(alpha, "jar", null, "", null));
+        shuffled.addDependency(new ModuleDependency(gamma, alpha, "runtime"));
+        shuffled.addDependency(new ModuleDependency(beta, alpha, "compile"));
+
+        MermaidGenerator generator = new MermaidGenerator();
+        assertEquals(generator.generate(first, true, true), generator.generate(shuffled, true, true));
+        BuildLevelGenerator levels = new BuildLevelGenerator();
+        assertEquals(levels.generate(first), levels.generate(shuffled));
+    }
+
+    @Test
     void emptyAndIsolatedGraphsAndWriter() throws Exception {
         MermaidGenerator generator = new MermaidGenerator();
         assertEquals("flowchart TD\n", generator.generate(new ArchitectureGraph(), true, true));
