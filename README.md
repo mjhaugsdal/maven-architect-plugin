@@ -54,6 +54,7 @@ To use the short form `mvn architecture:diagram`, declare the plugin under
         <includeDependencies>true</includeDependencies>
         <includeTestDependencies>false</includeTestDependencies>
         <includeExternalDependencies>false</includeExternalDependencies>
+        <resolveDependencyVersions>false</resolveDependencyVersions>
       </configuration>
     </plugin>
   </plugins>
@@ -70,6 +71,7 @@ Options and corresponding command-line properties:
 | `includeDependencies` | `architecture.includeDependencies` | `true` |
 | `includeTestDependencies` | `architecture.includeTestDependencies` | `false` |
 | `includeExternalDependencies` | `architecture.includeExternalDependencies` | `false` |
+| `resolveDependencyVersions` | `architecture.resolveDependencyVersions` | `false` |
 | `verbose` | `architecture.verbose` | `false` |
 
 For example:
@@ -77,6 +79,7 @@ For example:
 ```bash
 mvn architecture:diagram -Darchitecture.outputFile=target/my-diagram.mmd
 mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeTestDependencies=true
+mvn architecture:diagram -Darchitecture.diagramType=full -Darchitecture.includeExternalDependencies=true -Darchitecture.resolveDependencyVersions=true
 ```
 
 The `includeModuleHierarchy`, `includeDependencies` and `includeTestDependencies`
@@ -86,6 +89,15 @@ applies to the `full` diagram and is ignored by build-level diagrams. Set
 `architecture.verbose=true` to log selected and rendered project counts,
 generated edge counts, applied filters, and whether the output was written or
 unchanged. Default logging remains limited to the output path.
+
+Full dependency edges label the effective requested version, including ranges
+and versions supplied by dependency management. `resolveDependencyVersions`
+enables Maven Resolver and adds its selected version and conflict markers;
+transitive dependencies are included in this view. If Resolver provides no
+selected-version evidence, the diagram says `selected unavailable` rather than
+assuming the requested version was selected. External artifacts are included
+only when `includeExternalDependencies` is enabled. Build-level diagrams do
+not perform or display dependency resolution.
 
 ## Circular dependency report
 
@@ -142,6 +154,7 @@ shuffling the reactor input produces identical JSON.
 
 The integration-test consumer parses this output with Groovy's JSON parser and
 checks module and external nodes, all edge kinds, and dependency metadata.
+
 
 The generated file is UTF-8 and its parent directory is created automatically.
 If the content is unchanged, the existing file is left untouched. Generation
@@ -208,22 +221,28 @@ flowchart TD
     n2 -->|inherits| n0
     n2 --> n1
     n2 -->|inherits| n1
-    n1 -.-> n0
+    n1 -.->|requested 1.0| n0
 ```
 
 Solid arrows represent aggregation; solid arrows labeled `inherits` represent
-parent-POM inheritance; dotted arrows represent dependencies. A project can
+parent-POM inheritance; dotted dependency arrows label the effective requested
+version. Resolver-enabled arrows additionally show the selected version and
+mark mediation conflicts. A project can
 have both aggregation and inheritance edges, or neither. Node IDs are
 deterministic and independent of artifact IDs. Names that collide are
-disambiguated by group ID and version. The graph keeps dependency scopes even
-though the initial diagram does not display them.
+disambiguated by group ID and version. Dependency identity retains group,
+artifact, type/extension and classifier, so distinct artifact variants are not
+collapsed.
 
-Only dependencies declared by projects in the reactor are considered. Compile
-and runtime scopes are included by default; test scope is opt-in. Managed-only,
-provided, and system dependencies are not rendered. Classifier-specific
-dependencies are rendered as external artifacts when they do not match a
-selected reactor project's artifact. Projects omitted from the selected
-reactor (for example with `-pl`) are not invented in the diagram.
+Compile and runtime scopes are included by default; test scope is opt-in.
+Managed-only declarations remain excluded, while effective dependencies whose
+version comes from dependency management are labeled as managed. Provided and
+system scopes are not included by default. Classifier-specific dependencies
+are kept distinct. External dependencies are rendered only when enabled.
+Projects omitted from the selected reactor (for example with `-pl`) are not
+invented in the diagram. Classifier-specific dependencies that do not match
+the selected reactor artifact are rendered as external artifacts only when
+external dependencies are enabled.
 
 ## Dependency metrics
 
@@ -254,11 +273,10 @@ output, and `mojo/` owns Maven configuration. The plugin is a single Maven
 module. The Java package `io.github.mjhaugsdal.architecture` is
 project-specific, not the `com.example` placeholder.
 
-Version 0.0.1 supports Mermaid module-level diagrams, JSON export of direct
-declared dependencies, and direct dependency cycle reports. It does not resolve
-transitive dependencies, inspect source code, or enforce architecture rules.
-The [roadmap](ROADMAP.md) describes planned visualization, analysis, and
-validation work.
+The default diagram does not resolve transitive dependencies. Resolver-backed
+version reporting is opt-in and follows Maven's effective dependency graph. The
+plugin does not inspect source code or enforce architecture rules. See the
+[roadmap](ROADMAP.md) for planned visualization, analysis, and validation work.
 
 To prepare a 0.0.1 release, replace the development
 `0.0.1-SNAPSHOT` version with `0.0.1`, run `mvn clean install`, and publish

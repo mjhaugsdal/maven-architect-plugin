@@ -3,10 +3,15 @@ package io.github.mjhaugsdal.architecture.mojo;
 import io.github.mjhaugsdal.architecture.generator.BuildLevelGenerator;
 import io.github.mjhaugsdal.architecture.generator.MermaidGenerator;
 import io.github.mjhaugsdal.architecture.model.ArchitectureGraph;
+import io.github.mjhaugsdal.architecture.model.ModuleId;
+import io.github.mjhaugsdal.architecture.model.ResolvedDependencyVersion;
+import io.github.mjhaugsdal.architecture.scanner.MavenDependencyResolver;
 import io.github.mjhaugsdal.architecture.scanner.ProjectScanner;
 import io.github.mjhaugsdal.architecture.writer.DiagramWriter;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
@@ -16,12 +21,16 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.ProjectDependenciesResolver;
 
 /** Generates a Mermaid diagram of the currently selected Maven reactor. */
 @Mojo(name = "diagram", aggregator = true, defaultPhase = LifecyclePhase.NONE, threadSafe = true)
 public final class DiagramMojo extends AbstractMojo {
     @Component
     private ArtifactHandlerManager artifactHandlerManager;
+
+    @Component
+    private ProjectDependenciesResolver projectDependenciesResolver;
 
     @Parameter(defaultValue = "${session}", readonly = true, required = true)
     private MavenSession session;
@@ -53,9 +62,13 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.includeTestDependencies")
     private boolean includeTestDependencies;
 
-    /** Include direct dependencies whose artifacts are outside the selected reactor. */
+    /** Include dependencies outside the selected reactor in full diagrams. */
     @Parameter(defaultValue = "false", property = "architecture.includeExternalDependencies")
     private boolean includeExternalDependencies;
+
+    /** Resolve dependencies to show Maven-selected versions and mediated conflicts. */
+    @Parameter(defaultValue = "false", property = "architecture.resolveDependencyVersions")
+    private boolean resolveDependencyVersions;
 
     @Parameter(defaultValue = "false", property = "architecture.verbose")
     private boolean verbose;
@@ -65,20 +78,29 @@ public final class DiagramMojo extends AbstractMojo {
         if (session == null || session.getProjects() == null || session.getProjects().isEmpty()) {
             throw new MojoExecutionException("No Maven reactor projects are available to analyze");
         }
-        if (!project.equals(session.getProjects().get(0))) {
+        if (!project.equals(session.getTopLevelProject())) {
             return;
         }
         boolean buildLevels = validateParameters();
         try {
-            ProjectScanner scanner = new ProjectScanner(artifactHandlerManager);
+            var repositorySession = session.getRepositorySession();
+            ProjectScanner scanner = new ProjectScanner(
+                    artifactHandlerManager, repositorySession.getArtifactTypeRegistry());
             ArchitectureGraph graph;
             String diagram;
             if (buildLevels) {
                 graph = scanner.scanBuildOrder(session.getProjects());
                 diagram = new BuildLevelGenerator().generate(graph);
             } else {
-                graph = scanner.scan(session.getProjects(), includeTestDependencies, includeExternalDependencies);
-                diagram = new MermaidGenerator().generate(graph, includeModuleHierarchy, includeDependencies);
+                Map<ModuleId, List<ResolvedDependencyVersion>> resolvedVersions = resolveDependencyVersions
+                        ? new MavenDependencyResolver(projectDependenciesResolver, artifactHandlerManager,
+                                repositorySession.getArtifactTypeRegistry())
+                                .resolve(session.getProjects(), repositorySession, message -> getLog().warn(message))
+                        : Map.of();
+                graph = scanner.scan(session.getProjects(), includeTestDependencies,
+                        includeExternalDependencies, resolvedVersions);
+                diagram = new MermaidGenerator().generate(
+                        graph, includeModuleHierarchy, includeDependencies, resolveDependencyVersions);
             }
             boolean written = new DiagramWriter().write(outputFile.toPath(), diagram);
             if (verbose) {
@@ -98,10 +120,12 @@ public final class DiagramMojo extends AbstractMojo {
             throw new MojoExecutionException("Invalid architecture.diagramType '" + diagramType
                     + "'; valid values are 'build-levels' and 'full'");
         }
-        if (buildLevels && (!includeModuleHierarchy || !includeDependencies || includeTestDependencies)) {
+        if (buildLevels && (!includeModuleHierarchy || !includeDependencies || includeTestDependencies
+                || resolveDependencyVersions)) {
             throw new MojoExecutionException("architecture.includeModuleHierarchy, "
-                    + "architecture.includeDependencies, and architecture.includeTestDependencies only apply to "
-                    + "diagramType='full'; use diagramType='full' or reset these conflicting settings");
+                    + "architecture.includeDependencies, architecture.includeTestDependencies, and "
+                    + "architecture.resolveDependencyVersions only apply to diagramType='full'; "
+                    + "use diagramType='full' or reset these conflicting settings");
         }
         if (outputFile == null || outputFile.isDirectory()) {
             throw new MojoExecutionException("architecture.outputFile must point to a writable file, not a directory");
@@ -111,7 +135,7 @@ public final class DiagramMojo extends AbstractMojo {
 
     private String summary(String diagram, boolean written) {
         long renderedProjects = diagram.lines().filter(line -> line.matches("\\s*n\\d+\\[.*")).count();
-        long edges = diagram.lines().filter(line -> line.contains(" -->") || line.contains(" -.-> ")).count();
+        long edges = diagram.lines().filter(line -> line.contains(" -->") || line.contains(" -.->")).count();
         String filters = "reactor=selected";
         if ("build-levels".equals(diagramType)) {
             filters += ", dependencies=all scopes and types, standalone aggregators=omitted";
@@ -120,7 +144,8 @@ public final class DiagramMojo extends AbstractMojo {
             filters += ", hierarchy=" + (includeModuleHierarchy ? "included" : "excluded")
                     + ", dependencies=" + (includeDependencies ? scopes : "excluded")
                     + ", external dependencies="
-                    + (includeDependencies && includeExternalDependencies ? "included" : "excluded");
+                    + (includeDependencies && includeExternalDependencies ? "included" : "excluded")
+                    + ", version resolution=" + (resolveDependencyVersions ? "enabled" : "disabled");
         }
         return "Architecture diagram summary: " + session.getProjects().size() + " selected projects, "
                 + renderedProjects + " rendered projects, " + edges + " edges; filters: " + filters

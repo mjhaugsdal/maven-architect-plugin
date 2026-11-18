@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>example</groupId><artifactId>version-conflicts</artifactId><version>1.0</version></parent>
+    <artifactId>application</artifactId>
+    <dependencies>
+        <dependency><groupId>example</groupId><artifactId>branch-one</artifactId><version>1.0</version></dependency>
+        <dependency><groupId>example</groupId><artifactId>branch-two</artifactId><version>1.0</version></dependency>
+        <dependency>
+            <groupId>conflict.example</groupId><artifactId>shared</artifactId><version>1.0</version>
+            <type>test-jar</type><classifier>tests</classifier>
+        </dependency>
+        <dependency>
+            <groupId>conflict.example</groupId><artifactId>shared</artifactId><version>1.0</version>
+            <type>pom</type>
+        </dependency>
+    </dependencies>
+</project>

@@ -18,7 +18,7 @@ def findNode = { String label, String diagram ->
     match.group(1)
 }
 def containsEdge = { String diagram, String from, String to ->
-    diagram.contains("${from} -.-> ${to}")
+    diagram.readLines().any { it.contains("${from} -.->") && it.endsWith(" ${to}") }
 }
 
 runDiagram(["-Darchitecture.diagramType=full", "-Darchitecture.outputFile=target/architecture/default.mmd"])
