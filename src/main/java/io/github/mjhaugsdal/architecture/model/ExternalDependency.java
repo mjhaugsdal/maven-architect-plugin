@@ -10,6 +10,16 @@ public record ExternalDependency(
         boolean managed,
         boolean conflict)
         implements Comparable<ExternalDependency> {
+    public ExternalDependency(ModuleId from, ExternalArtifact to, String scope) {
+        this(from, new ArtifactIdentity(to.groupId(), to.artifactId(), to.type(), to.type(), to.classifier()),
+                scope, to.version(), null, false, false);
+    }
+
+    public ExternalArtifact to() {
+        return new ExternalArtifact(artifact.groupId(), artifact.artifactId(), requestedVersion,
+                artifact.type(), artifact.classifier());
+    }
+
     public String label() {
         return artifact.label() + (requestedVersion == null || requestedVersion.isBlank()
                 ? "" : ":" + requestedVersion);

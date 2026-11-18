@@ -70,41 +70,85 @@ public final class DiagramMojo extends AbstractMojo {
     @Parameter(defaultValue = "false", property = "architecture.resolveDependencyVersions")
     private boolean resolveDependencyVersions;
 
+    @Parameter(defaultValue = "false", property = "architecture.verbose")
+    private boolean verbose;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (session == null || session.getProjects() == null || session.getProjects().isEmpty()) {
             throw new MojoExecutionException("No Maven reactor projects are available to analyze");
         }
-        boolean buildLevels = "build-levels".equals(diagramType);
-        if (!buildLevels && !"full".equals(diagramType)) {
-            throw new MojoExecutionException("diagramType must be 'build-levels' or 'full', not '" + diagramType + "'");
+        if (!project.equals(session.getTopLevelProject())) {
+            return;
         }
-        if (outputFile == null || outputFile.isDirectory()) {
-            throw new MojoExecutionException("outputFile must point to a writable file, not a directory");
-        }
+        boolean buildLevels = validateParameters();
         try {
             var repositorySession = session.getRepositorySession();
             ProjectScanner scanner = new ProjectScanner(
                     artifactHandlerManager, repositorySession.getArtifactTypeRegistry());
+            ArchitectureGraph graph;
             String diagram;
             if (buildLevels) {
-                diagram = new BuildLevelGenerator().generate(scanner.scanBuildOrder(session.getProjects()));
+                graph = scanner.scanBuildOrder(session.getProjects());
+                diagram = new BuildLevelGenerator().generate(graph);
             } else {
                 Map<ModuleId, List<ResolvedDependencyVersion>> resolvedVersions = resolveDependencyVersions
                         ? new MavenDependencyResolver(projectDependenciesResolver, artifactHandlerManager,
                                 repositorySession.getArtifactTypeRegistry())
                                 .resolve(session.getProjects(), repositorySession, message -> getLog().warn(message))
                         : Map.of();
-                ArchitectureGraph graph = scanner.scan(session.getProjects(), includeTestDependencies,
+                graph = scanner.scan(session.getProjects(), includeTestDependencies,
                         includeExternalDependencies, resolvedVersions);
                 diagram = new MermaidGenerator().generate(
                         graph, includeModuleHierarchy, includeDependencies, resolveDependencyVersions);
             }
-            new DiagramWriter().write(outputFile.toPath(), diagram);
-            getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
+            boolean written = new DiagramWriter().write(outputFile.toPath(), diagram);
+            if (verbose) {
+                getLog().info(summary(diagram, written));
+            } else {
+                getLog().info("Mermaid architecture diagram: " + outputFile.getAbsolutePath());
+            }
         } catch (IllegalArgumentException | IOException exception) {
             throw new MojoExecutionException("Could not generate architecture diagram: " + exception.getMessage(),
                     exception);
         }
+    }
+
+    private boolean validateParameters() throws MojoExecutionException {
+        boolean buildLevels = "build-levels".equals(diagramType);
+        if (!buildLevels && !"full".equals(diagramType)) {
+            throw new MojoExecutionException("Invalid architecture.diagramType '" + diagramType
+                    + "'; valid values are 'build-levels' and 'full'");
+        }
+        if (buildLevels && (!includeModuleHierarchy || !includeDependencies || includeTestDependencies
+                || resolveDependencyVersions)) {
+            throw new MojoExecutionException("architecture.includeModuleHierarchy, "
+                    + "architecture.includeDependencies, architecture.includeTestDependencies, and "
+                    + "architecture.resolveDependencyVersions only apply to diagramType='full'; "
+                    + "use diagramType='full' or reset these conflicting settings");
+        }
+        if (outputFile == null || outputFile.isDirectory()) {
+            throw new MojoExecutionException("architecture.outputFile must point to a writable file, not a directory");
+        }
+        return buildLevels;
+    }
+
+    private String summary(String diagram, boolean written) {
+        long renderedProjects = diagram.lines().filter(line -> line.matches("\\s*n\\d+\\[.*")).count();
+        long edges = diagram.lines().filter(line -> line.contains(" -->") || line.contains(" -.->")).count();
+        String filters = "reactor=selected";
+        if ("build-levels".equals(diagramType)) {
+            filters += ", dependencies=all scopes and types, standalone aggregators=omitted";
+        } else {
+            String scopes = includeTestDependencies ? "compile/runtime/test" : "compile/runtime";
+            filters += ", hierarchy=" + (includeModuleHierarchy ? "included" : "excluded")
+                    + ", dependencies=" + (includeDependencies ? scopes : "excluded")
+                    + ", external dependencies="
+                    + (includeDependencies && includeExternalDependencies ? "included" : "excluded")
+                    + ", version resolution=" + (resolveDependencyVersions ? "enabled" : "disabled");
+        }
+        return "Architecture diagram summary: " + session.getProjects().size() + " selected projects, "
+                + renderedProjects + " rendered projects, " + edges + " edges; filters: " + filters
+                + "; output: " + outputFile.getAbsolutePath() + (written ? " (written)" : " (unchanged)");
     }
 }
